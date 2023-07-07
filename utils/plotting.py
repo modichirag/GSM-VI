@@ -2,17 +2,20 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-def plot_loss(x, y, savepath, fname, logit=True):
+def plot_loss(x, y, savepath, fname, logit=True, xlabel='Grad evals', ylabel='loss'):
 
     x, y = np.array(x), np.array(y)
     plt.figure()
     plt.plot(x, y)
-    plt.grid()
     if logit :
         plt.plot(x, -y, '--')
         plt.loglog()
+    plt.grid(which='both')
+    plt.xlabel(xlabel)
+    plt.ylabel(ylabel)
     plt.savefig(f'{savepath}/{fname}.png')
     plt.close()
+
 
 
 

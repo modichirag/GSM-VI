@@ -10,14 +10,14 @@ from numpyro.distributions import MultivariateNormal
 import plotting
 
 def backward_kl(samples, lpq, lpp):
-    logl = jnp.sum(lpp(samples))
-    logq = jnp.sum(lpq(samples))
+    logl = np.mean(lpp(samples))
+    logq = np.mean(lpq(samples))
     bkl = logq - logl
     return bkl
 
 def forward_kl(samples, lpq, lpp):
-    logl = jnp.sum(lpp(samples))
-    logq = jnp.sum(lpq(samples))
+    logl = np.mean(lpp(samples))
+    logq = np.mean(lpq(samples))
     fkl = logl - logq
     return fkl
 
@@ -75,9 +75,9 @@ class KLMonitor():
 
             if self.plot_samples:
                 qsamples = np.random.multivariate_normal(mean=mu, cov=cov, size=1000)
-                plotting.corner(qsamples,
+                plotting.corner(qsamples[:500],
                                 savepath=f"{self.savepath}/",
-                                savename=f"corner{i}") 
+                                savename=f"corner{i}", maxdims=5) 
 
                 plotting.compare_hist(qsamples, ref_samples=self.ref_samples[:1000],
                                 savepath=f"{self.savepath}/",
