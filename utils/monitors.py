@@ -39,26 +39,46 @@ class KLMonitor():
         self.fkl = []
         self.nevals = []        
         
-    def reset(self):
-        self.offset_evals = 0
+    def reset(self,
+              batch_size=None, 
+              checkpoint=None,
+              savepoint=None,
+              offset_evals=None,
+              ref_samples=None,
+              plot_samples=None,
+              savepath=None):
         self.nevals = []
         self.bkl = []
         self.fkl = []
-
+        if batch_size is not None: self.batch_size = batch_size
+        if checkpoint is not None: self.checkpoint = checkpoint
+        if savepoint is not None: self.savepoint = savepoint
+        if offset_evals is not None: self.offset_evals = offset_evals
+        if ref_samples is not None: self.ref_samples = ref_samples
+        if plot_samples is not None: self.plot_samples = plot_samples
+        if savepath is not None: self.savepath = savepath
+        print('offset evals reset to : ', self.offset_evals)
         
     def __call__(self, i, params, lp, key, nevals=1):
 
         #
         mu, cov = params
         key, key_sample = random.split(key)
-        qsamples = np.random.multivariate_normal(mean=mu, cov=cov, size=self.batch_size)
-        q = MultivariateNormal(loc=mu, covariance_matrix=cov)
-        self.bkl.append(backward_kl(qsamples, q.log_prob, lp))
+        np.random.seed(key_sample[0])
 
-        if self.ref_samples is not None:
-            idx = np.random.permutation(self.ref_samples.shape[0])[:self.batch_size]
-            psamples = self.ref_samples[idx]
-            self.fkl.append(forward_kl(psamples, q.log_prob, lp))
+        try:
+            qsamples = np.random.multivariate_normal(mean=mu, cov=cov, size=self.batch_size)
+            q = MultivariateNormal(loc=mu, covariance_matrix=cov)
+            self.bkl.append(backward_kl(qsamples, q.log_prob, lp))
+
+            if self.ref_samples is not None:
+                idx = np.random.permutation(self.ref_samples.shape[0])[:self.batch_size]
+                psamples = self.ref_samples[idx]
+                self.fkl.append(forward_kl(psamples, q.log_prob, lp))
+        except Exception as e:
+            print(f"Exception occured in monitor : {e}.\nAppending NaN")
+            self.bkl.append(np.NaN)
+            self.fkl.append(np.NaN)
             
         self.nevals.append(self.offset_evals + nevals)
         self.offset_evals = self.nevals[-1]

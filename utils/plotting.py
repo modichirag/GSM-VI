@@ -48,16 +48,20 @@ def corner(samples, savepath="./tmp/", savename='corner', save=True, maxdims=10)
 def compare_hist(samples, ref_samples=None, nbins=20, lbls="", savepath="./tmp/", savename='hist', maxdims=10, suptitle=None):
     '''Compare histogram of samples with reference sample
     '''
-    D = min(samples.shape[1], maxdims)
+    if (type(samples) == list):
+        D = min(samples[0].shape[1], maxdims)
+    else:
+        D = min(samples.shape[1], maxdims)
     if ref_samples is not None: D = min(D, ref_samples.shape[1])
     
-    if (lbls == "") & (type(samples) == list): lbls = [""]*len(samples)
+    if (lbls == "") & (type(samples) == list) : lbls = [""]*len(samples)
 
     fig, ax = plt.subplots(1, D, figsize=(3*D, 3))
 
     for ii in range(D):
         if ref_samples is not None:
             ax[ii].hist(ref_samples[:, ii], bins=nbins, density=True, alpha=1, lw=2, histtype='step', color='k', label='Ref');
+            ax[ii].set_xlim(ref_samples[:, ii].min(), ref_samples[:, ii].max())
         
         if type(samples) == list: 
             for j, ss in enumerate(samples):
