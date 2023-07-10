@@ -51,7 +51,7 @@ def gsm_fit(D, lp, max_iter=1000):
 
 if __name__=="__main__":
     
-    D = 10
+    D = 5
     mean, cov, lp, lp_g = setup_model(D=D)
 
     max_iter = 1000 
