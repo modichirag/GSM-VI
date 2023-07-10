@@ -18,10 +18,10 @@ and Pathfinder (https://arxiv.org/abs/2108.03782). <br>
 
 
 Dependencies: <br>
-The algorithms are implemented in Jax.<br>
-ADVI uses optax for maximizing ELBO.<br>
-Pathfinder uses the implementation in Blackjax which needs to be installed.<br>
-The target distributions in example files are implemented in numpyro.<br>
+The algorithms are implemented in `Jax`.<br>
+ADVI uses `optax` for maximizing ELBO.<br>
+Pathfinder uses the implementation in `Blackjax` which needs to be installed.<br>
+The target distributions in example files are implemented in `numpyro`.<br>
 
 
 Starting point :<br>
@@ -36,5 +36,6 @@ python example_pathfinder.py
 
 Other utilities :<br>
 We provide LBFGS initilization for GSM and ADVI. <br>
-We also provide a Monitor class to monitor the KL divergence. <br>
-over iterations as the algorithms progress. An example on how to use this is in `examples/example_gsm_initializers.py`
+We also provide a Monitor class to monitor the KL divergence over iterations as the algorithms progress.
+
+An example on how to use both these is in `examples/example_gsm_initializers.py`
