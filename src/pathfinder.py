@@ -4,17 +4,39 @@ from blackjax.optimizers.lbfgs import lbfgs_inverse_hessian_formula_1
 from blackjax.kernels import pathfinder
 
 class Pathfinder():
+    """
+    Wrapper class for Pathfinder algorithm implemented in blakcjax
+    """
 
     def __init__(self, D, lp):
+        """
+        Inputs:
+          D: (int) Dimensionality (number) of parameters
+          lp : Function to evaluate target log-probability distribution. 
+               whose gradient can be evaluated with jax.grad(lp)
+        """
         self.D = D
         self.lp = lp
 
 
     def fit(self, key, x0=None, num_samples=200, max_iter=1000, return_path=False):
+        """
+        Main function to fit a multivariate Gaussian distribution to the target
+
+        Inputs:
+          key: Random number generator key (jax.random.PRNGKey)
+          x0 : Optional, starting point for LBFGS optimization
+          num_samples : Optional, Number of gradient samples to keep for approximating inverse Hessian
+          max_iter : Optional, int. Max number of steps for LBFGS optimization
+          return_path : Optional, bool. Keep fixed to False and current blackjax implementation results in error if true
+
+        Returns:
+          mu : Array of shape D, fit of the mean
+          cov : Array of shape DxD, fit of the covariance matrix
+        """
         
         if x0 is None:
             x0 = jnp.zeros(self.D)
-        print(x0)
         if return_path :
             try:
                 finder = pathfinder(key, self.lp, num_samples=200, max_iter=1000, return_path=True)

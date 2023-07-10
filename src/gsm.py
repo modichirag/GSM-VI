@@ -92,6 +92,8 @@ class GSM:
           monitor : Optional. Function to monitor the progress and track different statistics for diagnostics. 
                     Function call should take the input tuple (iteration number, [mean, cov], lp, key, number of grad evals).
                     Example of monitor class is provided in utils/monitors.py
+
+        Returns:
           mu : Array of shape D, fit of the mean
           cov : Array of shape DxD, fit of the covariance matrix
         """

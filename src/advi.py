@@ -55,7 +55,6 @@ class ADVI():
         Returns:
           mu : Array of shape D, fit of the mean
           cov : Array of shape DxD, fit of the covariance matrix
-
         """
         
         lossf = jit(self.neg_elbo, static_argnums=(2))
