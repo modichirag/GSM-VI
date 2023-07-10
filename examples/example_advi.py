@@ -25,45 +25,43 @@ from advi import ADVI
 
 
 #####
+#####
 def setup_model(D=10):
    
     # setup a Gaussian target distribution
-    np.random.seed(0)
-    mu = np.random.random(D)
+    mean = np.random.random(D)
     L = np.random.normal(size = D**2).reshape(D, D)
     cov = np.matmul(L, L.T) + np.eye(D)*1e-3
-    model = dist.MultivariateNormal(loc=mu, covariance_matrix=cov)
+    model = dist.MultivariateNormal(loc=mean, covariance_matrix=cov)
     lp = jit(lambda x: jnp.sum(model.log_prob(x)))
     lp_g = jit(grad(lp, argnums=0))
 
-    return mu, cov, lp, lp_g
+    return mean, cov, lp, lp_g
 
 
-def advi_fit(D, lp, lp_g, niter=1000):
+def advi_fit(D, lp, lp_g, lr=1e-2, batch_size=16, niter=1000):
 
     advi = ADVI(D=D, lp=lp)
     key = random.PRNGKey(99)
-    opt = optax.adam(learning_rate=1e-2)
-    mu_fit, cov_fit, losses = advi.fit(key, opt, niter=niter)
+    opt = optax.adam(learning_rate=lr)
+    mean_fit, cov_fit, losses = advi.fit(key, opt, batch_size=batch_size, niter=niter)
 
-    return mu_fit, cov_fit
+    return mean_fit, cov_fit
 
 
 
 if __name__=="__main__":
     
     D = 5
-    mu, cov, lp, lp_g = setup_model(D=D)
+    mean, cov, lp, lp_g = setup_model(D=D)
 
-    niter = 20000
-    mu_fit, cov_fit = advi_fit(D, lp, lp_g, niter=niter)
+    niter = 5000
+    lr = 5e-3
+    batch_size = 16
+    mean_fit, cov_fit = advi_fit(D, lp, lp_g, lr=lr, batch_size=batch_size, niter=niter)
 
+    print("True mean : ", mean)
+    print("Fit mean  : ", mean_fit)
     print()
-    print("Check mean fit")
-    print(np.allclose(mu, mu_fit))
-    print(mu/mu_fit)
-
-    print()
-    print("Check cov fit")
-    print(np.allclose(cov, cov_fit))
-    print(cov/cov_fit)
+    print("True covariance matrix : \n", cov)
+    print("Fit covariance matrix  : \n", cov_fit)

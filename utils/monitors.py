@@ -24,7 +24,24 @@ def forward_kl(samples, lpq, lpp):
     
 @dataclass
 class KLMonitor():
-
+    """
+    Class to monitor KL divergence during optimization for VI
+    
+    Inputs:
+    
+    batch_size: (int) Number of samples to use to estimate divergence
+    checkpoint: (int) Number of iterations after which to run monitor
+    savepoint : (int) Number of iterations after which to save progress
+    offset_evals: (int) Value with which to offset number of gradient evaluatoins
+                    Used to account for gradient evaluations done in warmup or initilization        
+    ref_samples: Optional, samples from the target distribution.
+                   If provided, also track forward KL divergence
+    savepath : Optional, directory to save the losses and plots at saavepoints.
+               If None, no plots are saved.
+    plot_samples : Optional, bool. If True, plot loss function at savepoints. 
+      
+    """
+    
     batch_size : int = 8
     checkpoint : int = 10
     savepoint : int = 100
@@ -60,6 +77,22 @@ class KLMonitor():
         print('offset evals reset to : ', self.offset_evals)
         
     def __call__(self, i, params, lp, key, nevals=1):
+        """
+        Main function to monitor backward (and forward) KL divergence over iterations.
+        If savepath is not None, it also saves and plots losses at savepoints.
+        
+        Inputs:
+        
+        i: (int) iteration number
+        params: (tuple; (mean, cov)) Current estimate of mean and covariance matrix
+        savepoint : (int) Number of iterations after which to save progress
+        lp: Function to evaluate target log-probability
+        key: Random number generator key (jax.random.PRNGKey)
+        nevals: (int) Number of gradient evaluations SINCE the last call of the monitor function
+
+        Returns:
+        key : New key for generation random number
+        """
 
         #
         mu, cov = params
