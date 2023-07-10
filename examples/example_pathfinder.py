@@ -1,3 +1,5 @@
+## Most basic example for fitting a target Multivariate Gaussian distribution with GSM updates
+
 import numpy as np
 import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -11,7 +13,6 @@ config.update("jax_enable_x64", True)
 import jax
 import jax.numpy as jnp
 from jax import jit, grad, random
-import optax
 
 import numpyro
 import numpyro.distributions as dist
@@ -19,12 +20,10 @@ import numpyro.distributions as dist
 # Import GSM
 import sys
 sys.path.append('../src/')
-from advi import ADVI
-
+from pathfinder import Pathfinder
 #####
 
 
-#####
 #####
 def setup_model(D=10):
    
@@ -39,26 +38,24 @@ def setup_model(D=10):
     return mean, cov, lp, lp_g
 
 
-def advi_fit(D, lp, lp_g, lr=1e-2, batch_size=16, niter=1000):
 
-    advi = ADVI(D=D, lp=lp)
+def gsm_fit(D, lp, max_iter=1000):
+
+    finder = Pathfinder(D=D, lp=lp)
     key = random.PRNGKey(99)
-    opt = optax.adam(learning_rate=lr)
-    mean_fit, cov_fit, losses = advi.fit(key, opt, batch_size=batch_size, niter=niter)
-
+    mean_fit, cov_fit, state = finder.fit(key, max_iter=max_iter, return_path=False)
+    
     return mean_fit, cov_fit
 
 
 
 if __name__=="__main__":
     
-    D = 5
+    D = 10
     mean, cov, lp, lp_g = setup_model(D=D)
 
-    niter = 5000
-    lr = 5e-3
-    batch_size = 16
-    mean_fit, cov_fit = advi_fit(D, lp, lp_g, lr=lr, batch_size=batch_size, niter=niter)
+    max_iter = 1000 
+    mean_fit, cov_fit = gsm_fit(D, lp, max_iter=max_iter)
 
     print()
     print("True mean : ", mean)

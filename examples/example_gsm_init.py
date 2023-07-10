@@ -72,6 +72,7 @@ if __name__=="__main__":
     niter = 500
     mean_fit, cov_fit = gsm_fit(D, lp, lp_g, niter=niter, ref_samples=ref_samples)
     
+    print()
     print("True mean : ", mean)
     print("Fit mean  : ", mean_fit)
     print()
