@@ -48,7 +48,8 @@ def gsm_fit(D, lp, lp_g, ref_samples, niter=1000):
     rng = random.PRNGKey(99)
 
     # gsm without initialization
-    monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, savepath='./tmp/', plot_samples=True)
+    monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10,\
+                        savepath='./tmp/', plot_samples=True)
     mean_fit, cov_fit = gsm.fit(rng, niter=niter, monitor=monitor)
         
     # setup gsm with initilization from LBFGS fit
@@ -56,8 +57,9 @@ def gsm_fit(D, lp, lp_g, ref_samples, niter=1000):
     mean_init, cov_init, res = lbfgs_init(mean_init, lp, lp_g)
     print(f'lbfgs output : \n{res}\n')
     
-    monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, savepath='./tmp2/', plot_samples=True, \
-                        offset_evals=res.nfev) #offset with lbfgs evals for correct accounting
+    monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, \
+                        savepath='./tmp2/', plot_samples=True, \
+                        offset_evals=res.nfev) # offset with lbfgs evals for correct accounting
     mean_fit, cov_fit = gsm.fit(rng, mean=mean_init, cov=cov_init, niter=niter, monitor=monitor)
 
     return mean_fit, cov_fit

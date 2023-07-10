@@ -127,14 +127,17 @@ class KLMonitor():
                 plotting.plot_loss(self.nevals, self.fkl, self.savepath, fname='fkl', logit=True)
 
             if self.plot_samples:
-                qsamples = np.random.multivariate_normal(mean=mu, cov=cov, size=1000)
-                plotting.corner(qsamples[:500],
-                                savepath=f"{self.savepath}/",
-                                savename=f"corner{i}", maxdims=5) 
+                try:
+                    qsamples = np.random.multivariate_normal(mean=mu, cov=cov, size=1000)
+                    plotting.corner(qsamples[:500],
+                                    savepath=f"{self.savepath}/",
+                                    savename=f"corner{i}", maxdims=5) 
 
-                plotting.compare_hist(qsamples, ref_samples=self.ref_samples[:1000],
-                                savepath=f"{self.savepath}/",
-                                savename=f"hist{i}") 
+                    plotting.compare_hist(qsamples, ref_samples=self.ref_samples[:1000],
+                                    savepath=f"{self.savepath}/",
+                                    savename=f"hist{i}") 
+                except Exception as e:
+                    print(f"Exception occured in plotting samples in monitor : {e}.\nSkip")
             
         return key
     
