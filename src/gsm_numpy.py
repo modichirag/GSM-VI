@@ -1,3 +1,5 @@
+## Pure numpy implementation of GSM updates. 
+
 import numpy as np
 
 def _gsm_update_single(sample, v, mu0, S0):
