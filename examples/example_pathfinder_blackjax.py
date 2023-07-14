@@ -1,4 +1,4 @@
-## Most basic example for fitting a target Multivariate Gaussian distribution with Pathfinder
+## Most basic example for fitting a target Multivariate Gaussian distribution with Pathfinder from blackjax
 
 import numpy as np
 import os
@@ -20,7 +20,7 @@ import numpyro.distributions as dist
 # Import GSM
 import sys
 sys.path.append('../src/')
-from pathfinder import Pathfinder
+from pathfinder_blackjax import Pathfinder
 #####
 
 
@@ -39,11 +39,11 @@ def setup_model(D=10):
 
 
 
-def pathfinder_fit(D, lp, lp_g, maxiter=1000, batch_kl=32):
+def pathfinder_fit(D, lp, maxiter=1000):
 
-    finder = Pathfinder(D=D, lp=lp, lp_g=lp_g)
+    finder = Pathfinder(D=D, lp=lp)
     key = random.PRNGKey(99)
-    mean_fit, cov_fit, trajectory = finder.fit(key, maxiter=maxiter, return_trajectory=True)
+    mean_fit, cov_fit, state = finder.fit(key, max_iter=max_iter, return_path=False)
     
     return mean_fit, cov_fit
 
@@ -55,8 +55,7 @@ if __name__=="__main__":
     mean, cov, lp, lp_g = setup_model(D=D)
 
     maxiter = 1000 
-    batch_kl = 64
-    mean_fit, cov_fit = pathfinder_fit(D, lp, lp_g, maxiter=maxiter, batch_kl=batch_kl)
+    mean_fit, cov_fit = pathfinder_fit(D, lp, maxiter=maxiter)
 
     print()
     print("True mean : ", mean)
