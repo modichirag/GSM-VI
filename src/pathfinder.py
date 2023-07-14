@@ -1,25 +1,71 @@
+import numpy as np
 import jax
-import jax.numpy as jnp
-from blackjax.optimizers.lbfgs import lbfgs_inverse_hessian_formula_1
-from blackjax.kernels import pathfinder
+from numpyro.distributions import MultivariateNormal
+from scipy_lbfgs_wrapper import minimize_lbfgsb
+
+class Trajectory():
+    """
+    Callback for saveing the trajectory of LBFGS algorithm
+    """
+    def __init__(self):
+        self.trajectory_x = []
+        self.trajectory_hessinv = []
+        self.trajectory_f = []
+        self.length = 0 
+        
+    def __call__(self, res):
+        """
+        Append the position, Hessian_inverse and function value on LBFGS trajectory
+
+        Inputs:
+          res : OptimizeResult object from LBFGS 
+                expected to have x, hess_inv and fun as attributes atleast
+        """
+        self.trajectory_x.append(res.x*1.)
+        self.trajectory_hessinv.append(res.hess_inv.todense())
+        self.trajectory_f.append(res.fun)
+        self.length += 1
+
+    def reset(self):
+        self.trajectory_x = []
+        self.trajectory_hessinv = []
+        self.trajectory_f = []
+        self.length = 0 
+  
+
 
 class Pathfinder():
     """
-    Wrapper class for Pathfinder algorithm implemented in blakcjax
+    Implement pathfinder algorithm wrapping over Scipy's implementation of LBFGS
     """
 
-    def __init__(self, D, lp):
+    def __init__(self, D, lp, lp_g):
         """
         Inputs:
           D: (int) Dimensionality (number) of parameters
           lp : Function to evaluate target log-probability distribution. 
-               whose gradient can be evaluated with jax.grad(lp)
+          lp_g : Function to evaluate gradient of target log-probability distribution. 
         """
         self.D = D
         self.lp = lp
+        self.lp_g = lp_g
+
+    # if using jax, can jit this
+    def _estimate_KL(self, mu, cov, batch_kl, key):
+        """
+        Estimate KL divergence between Gaussian distribution (mu, cov) and target distribution
+        """
+        key, key_sample = jax.random.split(key)
+        #samples = np.random.multivariate_normal(mean=mu, cov=cov, size=batch_kl)
+        q = MultivariateNormal(loc=mu, covariance_matrix=cov)    
+        samples = q.sample(key_sample, (batch_kl,))
+        logl = np.mean(self.lp(samples))
+        logq = np.mean(q.log_prob(samples))
+        kl = logq - logl
+        return key, kl
 
 
-    def fit(self, key, x0=None, num_samples=200, max_iter=1000, return_path=False):
+    def fit(self, key, x0=None, num_samples=200, maxiter=1000, batch_kl=32, return_trajectory=False, verbose=True):
         """
         Main function to fit a multivariate Gaussian distribution to the target
 
@@ -34,30 +80,34 @@ class Pathfinder():
           mu : Array of shape D, fit of the mean
           cov : Array of shape DxD, fit of the covariance matrix
         """
-        
-        if x0 is None:
-            x0 = jnp.zeros(self.D)
-        if return_path :
-            try:
-                finder = pathfinder(key, self.lp, num_samples=200, max_iter=1000, return_path=True)
-                path = finder.init(x0)
-                best_i = jnp.argmax(path.elbo)        
-                print("Best ELBO at : ", best_i)
-                state = jax.tree_map(lambda x: x[best_i], path)
-                
-                mu = state.position
-                cov =  lbfgs_inverse_hessian_formula_1(state.alpha, state.beta, state.gamma)
-                return mu, cov, state, path
-                
-            except Exception as e:
-                print("Exception in running pathfinder with return_path flag :\n", e)
-                
-        finder = pathfinder(key, self.lp, num_samples=num_samples, max_iter=max_iter)
-        state = finder.init(x0)
-        
-        mu = state.position
-        cov =  lbfgs_inverse_hessian_formula_1(state.alpha, state.beta, state.gamma)
-        
-        return mu, cov, state
 
+        # Negate lp as LBFGS will minimize the cost function
+        f = lambda x: -self.lp(x)
+        f_g = lambda x: -self.lp_g(x)
+
+        if x0 is None:
+            x0 = np.zeros(self.D)
+
+        # Optimize with LBFGS
+        t = Trajectory()
+        res = minimize_lbfgsb(f, x0, jac=f_g, callback=t, maxcor=100, maxiter=maxiter)        
+        if verbose : print(f"Output of LBFGS run is \n{res}")
+
+        # Estimate KL at all points. Proposed optimization- to save memory,
+        # this can be made part of callback, so we don't have to save entire trajecotry but only best point
+        kls = []
+        for i in range(t.length):
+            key, kl = self._estimate_KL(t.trajectory_x[i], t.trajectory_hessinv[i], batch_kl, key)
+            kls.append(kl)
+
+        best_i = np.argmin(kls)
+        if verbose: print (f"KL minimized at iteration {best_i}")
+        mu = t.trajectory_x[best_i]
+        cov = t.trajectory_hessinv[best_i]
+        
+        if return_trajectory:
+            return mu, cov, t
+        
+        else:
+            return mu, cov
 
