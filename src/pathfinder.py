@@ -95,12 +95,12 @@ class Pathfinder():
 
         # Estimate KL at all points. Proposed optimization- to save memory,
         # this can be made part of callback, so we don't have to save entire trajecotry but only best point
-        kls = []
+        t.kls = []
         for i in range(t.length):
             key, kl = self._estimate_KL(t.trajectory_x[i], t.trajectory_hessinv[i], batch_kl, key)
-            kls.append(kl)
+            t.kls.append(kl)
 
-        best_i = np.argmin(kls)
+        best_i = np.argmin(t.kls)
         if verbose: print (f"KL minimized at iteration {best_i}")
         mu = t.trajectory_x[best_i]
         cov = t.trajectory_hessinv[best_i]
