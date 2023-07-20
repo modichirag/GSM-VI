@@ -1,8 +1,9 @@
 # GSM-VI
-## Code for Gaussian Score Matching Variational Inference
+### Code for Variational Inference (VI) with Gaussian Score Matching (GSM).
 
-This repo implements the Gaussian Score Matching (GSM) algorithm for Variational Inference (VI)
-which fits a multivariate Gasussian distribution with dense covaraince matrix to the target distribution
+This repo implements code for paper https://arxiv.org/abs/2307.07849.
+
+GSM-VI fits a multivariate Gasussian distribution with dense covaraince matrix to the target distribution
 by score matching. It only requires access to the score function i.e. the gradient of the target log-probability
 distribution and implements analytic updates for the variational parameters (mean and covariance matrix).
 
