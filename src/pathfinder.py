@@ -30,7 +30,12 @@ class Trajectory():
         self.trajectory_x = []
         self.trajectory_hessinv = []
         self.trajectory_f = []
-        self.length = 0 
+        self.length = 0
+        
+    def to_array(self):
+        self.trajectory_x = np.array(self.trajectory_x)
+        self.trajectory_hessinv = np.array(self.trajectory_hessinv)
+        self.trajectory_f = np.array(self.trajectory_f)
   
 
 
@@ -100,6 +105,8 @@ class Pathfinder():
             key, kl = self._estimate_KL(t.trajectory_x[i], t.trajectory_hessinv[i], batch_kl, key)
             t.kls.append(kl)
 
+        t.kls = np.array(t.kls)
+        t.to_array()
         best_i = np.argmin(t.kls)
         if verbose: print (f"KL minimized at iteration {best_i}")
         mu = t.trajectory_x[best_i]
