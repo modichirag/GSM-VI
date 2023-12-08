@@ -45,6 +45,4 @@ if __name__=="__main__":
 
     print("\nTrue mean : ", mean)
     print("Fit mean  : ", mean_fit)
-    print("True covariance matrix : \n", cov)
-    print("Fit covariance matrix  : \n", cov_fit)
 

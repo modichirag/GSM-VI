@@ -43,5 +43,3 @@ if __name__=="__main__":
 
     print("\nTrue mean : ", mean)
     print("Fit mean  : ", mean_fit)
-    print("\nFit mean matches the truth? ", np.allclose(mean, mean_fit))
-    print("\nFit covariance matches the truth? ", np.allclose(cov, cov_fit))
