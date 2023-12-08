@@ -17,7 +17,9 @@ which is another common variants of fitting a multivariate Gaussian distribution
 The code is written in python3 and uses the basic python packages like numpy and matplotlib.<br>
 GSM algorithm is implemented in `Jax` to benefit from jit-compilation.<br>
 
-#### Optional dependencies
+#### Optional dependencies 
+These will not be installed with the package but are needed to run the `examples` and `advi`.
+
 The target distributions in example files are implemented in `numpyro`.<br>
 For using other algorithms and utilities, following optional packages are requied: <br>
 ADVI uses `optax` for maximizing ELBO.<br>
@@ -28,13 +30,28 @@ We provide LBFGS initilization for the variational distribution which can be use
 We also provide a Monitor class to monitor the KL divergence over iterations as the algorithms progress.
 
 
+### Basic usage
+
+The following is the minimal code to use GSM to fit the parameters `x` of a `model` which gives access to `log_prob` function. 
+```
+dimensions = D
+model =  setup_model(D=D)
+lp = jit(lambda x: jnp.sum(model.log_prob(x)))
+lp_g = jit(grad(lp, argnums=0))
+
+gsm = GSM(D=D, lp=lp, lp_g=lp_g)
+mean_fit, cov_fit = gsm.fit(key=random.PRNGKey(99), niter=500)
+```
 
 ### Starting point :<br>
-We provide simple examples in `examples/` folder to fit a target multivariate Gaussian distribution
-with GSM and ADVI. <br>
+We provide simple examples in `examples/` folder to fit a target multivariate Gaussian distribution with GSM and ADVI. <br>
 ```
 cd examples
 python3 example_gsm.py
 python3 example_advi.py
 ```
-An example on how to use the Monitor class and LBFGS initialization is in `examples/example_gsm_initializers.py`
+An example on how to use the Monitor class and LBFGS initialization is in `examples/example_initializers.py`
+```
+cd examples
+python3 example_initializers.py
+```
