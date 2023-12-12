@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "gsmvi"
-version = "0.0.1"
+version = "0.0.7"
 authors = [
   { name="Chirag Modi", email="modichirag92@gmail.com" },
 ]
@@ -17,14 +17,15 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-  "jax",
-  "jaxlib",
-  "numpyro",
 ]
 
 
 [project.optional-dependencies]
-full = ["optax",
+full = [
+"jax",
+"jaxlib",
+"numpyro",
+"optax",
 "scipy"]
 
 [project.urls]
