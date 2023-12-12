@@ -35,7 +35,7 @@ if __name__=="__main__":
     
     ###
     # setup a toy Gaussia model and extracet score needed for GSM
-    D =50
+    D = 5
     mean, cov, lp, lp_g = setup_model(D=D)
 
     ###
