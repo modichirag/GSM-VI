@@ -18,9 +18,7 @@ import numpyro
 import numpyro.distributions as dist
 
 # Import GSM
-import sys
-sys.path.append('../src/')
-from gsm import GSM
+from gsmvi.gsm import GSM
 #####
 
 
