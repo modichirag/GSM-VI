@@ -155,10 +155,6 @@ class Scorenorm(BBVI):
                whose gradient can be evaluated with jax.grad(lp)
         """
         super().__init__(D=D, lp=lp, lp_g=lp_g)
-        # self.D = D
-        # self.lp = lp
-        # self.lp_g = lp_g
-        # self.idx_tril = jnp.stack(jnp.tril_indices(D)).T
         
     def loss_function(self, params, key, batch_size):
         """
@@ -174,7 +170,6 @@ class Scorenorm(BBVI):
         samples = jax.lax.stop_gradient(q.sample(key, (batch_size,)))
         true_score = self.lp_g(samples)
         var_score = q_lp_g(samples)
-        print(true_score.shape, var_score.shape)
         scorediff = true_score - var_score
         scorenorm = jnp.mean(jnp.sum(scorediff**2, axis=1)**0.5, axis=0)
         return scorenorm

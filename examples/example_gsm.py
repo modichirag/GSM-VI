@@ -19,6 +19,7 @@ import numpyro.distributions as dist
 
 # Import GSM
 from gsmvi.gsm import GSM
+from gsmvi.monitors import KLMonitor
 #####
 
 
@@ -33,27 +34,23 @@ def setup_model(D=10):
     lp = jit(lambda x: jnp.sum(model.log_prob(x)))
     lp_g = jit(grad(lp, argnums=0))
 
-    return mean, cov, lp, lp_g
-
-
-
-def gsm_fit(D, lp, lp_g, niter=1000):
-
-    gsm = GSM(D=D, lp=lp, lp_g=lp_g)
-    key = random.PRNGKey(99)
-    mean_fit, cov_fit = gsm.fit(key, niter=niter)
-
-    return mean_fit, cov_fit
+    return model, mean, cov, lp, lp_g
 
 
 
 if __name__=="__main__":
     
     D = 10
-    mean, cov, lp, lp_g = setup_model(D=D)
+    model, mean, cov, lp, lp_g = setup_model(D=D)
+    ref_samples = model.sample(random.PRNGKey(99), (1000,))
 
-    niter = 500
-    mean_fit, cov_fit = gsm_fit(D, lp, lp_g, niter=niter)
+    niter = 5000
+    batch_size = 2
+    gsm = GSM(D=D, lp=lp, lp_g=lp_g)
+    key = random.PRNGKey(99)
+    monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, savepoint=5000,\
+                        savepath='./tmp/', plot_samples=True)
+    mean_fit, cov_fit = gsm.fit(key, niter=niter, batch_size=batch_size, monitor=monitor)
 
     print()
     print("True mean : ", mean)

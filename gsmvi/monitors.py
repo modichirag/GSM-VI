@@ -1,24 +1,43 @@
 import numpy as np
 import os
 from dataclasses import dataclass
+from functools import partial
 
 import jax
 import jax.numpy as jnp
 from jax import jit, grad, random
 from numpyro.distributions import MultivariateNormal
 
-import plotting
+from . import plotting
 
-def backward_kl(samples, lpq, lpp):
-    logl = np.mean(lpp(samples))
-    logq = np.mean(lpq(samples))
-    bkl = logq - logl
-    return bkl
+# def reverse_kl(samples, lpq, lpp):
+#     logl = jnp.mean(lpp(samples))
+#     logq = jnp.mean(lpq(samples))
+#     rkl = logq - logl
+#     return rkl
 
-def forward_kl(samples, lpq, lpp):
-    logl = np.mean(lpp(samples))
-    logq = np.mean(lpq(samples))
+# def forward_kl(samples, lpq, lpp):
+#     logl = jnp.mean(lpp(samples))
+#     logq = jnp.mean(lpq(samples))
+#     fkl = logl - logq
+#     return fkl
+
+@partial(jit, static_argnums=(3))
+def reverse_kl(samples, mu, cov, lp):
+    q = MultivariateNormal(mu, cov)
+    logq = jnp.sum(q.log_prob(samples))
+    logl = jnp.sum(lp(samples))
+    rkl = logq - logl
+    rkl /= samples.shape[0]
+    return rkl
+
+@partial(jit, static_argnums=(3))
+def forward_kl(samples, mu, cov, lp):
+    q = MultivariateNormal(mu, cov)
+    logq = jnp.sum(q.log_prob(samples))
+    logl = jnp.sum(lp(samples))
     fkl = logl - logq
+    fkl /= samples.shape[0]
     return fkl
 
     
@@ -52,7 +71,7 @@ class KLMonitor():
     
     def __post_init__(self):
 
-        self.bkl = []
+        self.rkl = []
         self.fkl = []
         self.nevals = []        
         
@@ -65,7 +84,7 @@ class KLMonitor():
               plot_samples=None,
               savepath=None):
         self.nevals = []
-        self.bkl = []
+        self.rkl = []
         self.fkl = []
         if batch_size is not None: self.batch_size = batch_size
         if checkpoint is not None: self.checkpoint = checkpoint
@@ -78,7 +97,7 @@ class KLMonitor():
         
     def __call__(self, i, params, lp, key, nevals=1):
         """
-        Main function to monitor backward (and forward) KL divergence over iterations.
+        Main function to monitor reverse (and forward) KL divergence over iterations.
         If savepath is not None, it also saves and plots losses at savepoints.
         
         Inputs:
@@ -101,16 +120,17 @@ class KLMonitor():
 
         try:
             qsamples = np.random.multivariate_normal(mean=mu, cov=cov, size=self.batch_size)
-            q = MultivariateNormal(loc=mu, covariance_matrix=cov)
-            self.bkl.append(backward_kl(qsamples, q.log_prob, lp))
+            #q = MultivariateNormal(loc=mu, covariance_matrix=cov)
+            #q_lp = jit(lambda x: jnp.sum(q.log_prob(x)))
+            self.rkl.append(reverse_kl(qsamples, mu, cov, lp))
 
             if self.ref_samples is not None:
                 idx = np.random.permutation(self.ref_samples.shape[0])[:self.batch_size]
                 psamples = self.ref_samples[idx]
-                self.fkl.append(forward_kl(psamples, q.log_prob, lp))
+                self.fkl.append(forward_kl(psamples, mu,cov, lp))
         except Exception as e:
             print(f"Exception occured in monitor : {e}.\nAppending NaN")
-            self.bkl.append(np.NaN)
+            self.rkl.append(np.NaN)
             self.fkl.append(np.NaN)
             
         self.nevals.append(self.offset_evals + nevals)
@@ -118,10 +138,15 @@ class KLMonitor():
 
         #save
         if (self.savepath is not None) & (i%self.savepoint == 0):
+
+            print("Savepoint: saving current fit, loss and diagnostic plots")
+            
             os.makedirs(self.savepath, exist_ok=True)
+            np.save(f"{self.savepath}/mu_fit", mu)
+            np.save(f"{self.savepath}/cov_fit", cov)
             np.save(f"{self.savepath}/nevals", self.nevals)
-            np.save(f"{self.savepath}/bkl", self.bkl)
-            plotting.plot_loss(self.nevals, self.bkl, self.savepath, fname='bkl', logit=True)
+            np.save(f"{self.savepath}/rkl", self.rkl)
+            plotting.plot_loss(self.nevals, self.rkl, self.savepath, fname='rkl', logit=True)
             if self.ref_samples is not None:
                 np.save(f"{self.savepath}/fkl", self.fkl)
                 plotting.plot_loss(self.nevals, self.fkl, self.savepath, fname='fkl', logit=True)

@@ -18,7 +18,7 @@ import numpyro.distributions as dist
 
 # Import GSM
 from gsmvi.bbvi import ADVI
-
+from gsmvi.monitors import KLMonitor
 #####
 
 
@@ -34,29 +34,27 @@ def setup_model(D=10):
     lp = jit(lambda x: jnp.sum(model.log_prob(x)))
     lp_g = jit(grad(lp, argnums=0))
 
-    return mean, cov, lp, lp_g
-
-
-def advi_fit(D, lp, lp_g, lr=1e-2, batch_size=16, niter=1000):
-
-    advi = ADVI(D=D, lp=lp)
-    key = random.PRNGKey(99)
-    opt = optax.adam(learning_rate=lr)
-    mean_fit, cov_fit, losses = advi.fit(key, opt, batch_size=batch_size, niter=niter)
-
-    return mean_fit, cov_fit
-
+    return model, mean, cov, lp, lp_g
 
 
 if __name__=="__main__":
     
     D = 5
-    mean, cov, lp, lp_g = setup_model(D=D)
+    np.random.seed(100)
+    model, mean, cov, lp, lp_g = setup_model(D=D)
+    ref_samples = model.sample(random.PRNGKey(99), (1000,))
 
     niter = 5000
     lr = 5e-3
     batch_size = 16
-    mean_fit, cov_fit = advi_fit(D, lp, lp_g, lr=lr, batch_size=batch_size, niter=niter)
+
+    alg = ADVI(D=D, lp=lp)
+    key = random.PRNGKey(99)
+    opt = optax.adam(learning_rate=lr)
+    monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, savepoint=5000,\
+                        savepath='./tmp/', plot_samples=True)
+    mean_fit, cov_fit, losses = alg.fit(key, opt, batch_size=batch_size, niter=niter, monitor=monitor)
+
 
     print()
     print("True mean : ", mean)
