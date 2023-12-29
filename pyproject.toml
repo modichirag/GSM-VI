@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gsmvi"
+version = "0.1"
+authors = [
+  { name="Chirag Modi", email="modichirag92@gmail.com" },
+]
+description = "Implementation of Gaussian score matching for variational inference (arXiv:2307.07849)"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+]
+
+
+[project.optional-dependencies]
+full = [
+"jax",
+"jaxlib",
+"numpyro",
+"optax",
+"scipy"]
+
+[project.urls]
+Homepage = "https://github.com/modichirag/GSM-VI/"
