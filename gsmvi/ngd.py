@@ -1,73 +1,51 @@
+import numpy as np
 import jax
 import jax.numpy as jnp
-from jax import jit, random
-from jax.scipy.linalg import sqrtm
-#from scipy.linalg import sqrtm
-#from numpyro.distributions import MultivariateNormal  ##Needed if sampling from numpyro dist below
-import numpy as np              
+from jax import jit, grad, random
+from numpyro.distributions import MultivariateNormal
+import optax
+from functools import partial      
 
 
-#@jit
-def ls_gsm_update(samples, vs, mu0, S0, reg):
+class NGD():
     """
-    Returns updated mean and covariance matrix with GSM updates.
-    For a batch, this is simply the mean of updates for individual samples.
-
-    Inputs:
-      samples: Array of samples of shape BxD where B is the batch dimension
-      vs : Array of score functions of shape BxD corresponding to samples
-      mu0 : Array of shape D, current estimate of the mean
-      S0 : Array of shape DxD, current estimate of the covariance matrix
-
-    Returns:
-      mu : Array of shape D, new estimate of the mean
-      S : Array of shape DxD, new estimate of the covariance matrix
+    Class for fitting a multivariate Gaussian distribution with dense covariance matrix
+    by following natural gradients
     """
-
-    assert len(samples.shape) == 2
-    assert len(vs.shape) == 2
-    B = samples.shape[0]
-
-    xbar = jnp.mean(samples, axis=0)
-    outer_map = jax.vmap(jnp.outer, in_axes=(0, 0))
-    xdiff = samples - xbar
-    C = jnp.mean(outer_map(xdiff, xdiff), axis=0)
-
-    gbar = jnp.mean(vs, axis=0)
-    gdiff = vs - gbar
-    G = jnp.mean(outer_map(gdiff, gdiff), axis=0) 
-
-    U = reg * G + (reg)/(1+reg) * jnp.outer(gbar, gbar)
-    V = S0 + reg * C + (reg)/(1+reg) * jnp.outer(mu0 - xbar, mu0 - xbar)
-    I = jnp.identity(samples.shape[1])
-
-    mat = I + 4 * jnp.matmul(U, V)
-    # S = 2 * jnp.matmul(V, jnp.linalg.inv(I + sqrtm(mat).real))
-    S = 2 * jnp.linalg.solve(I + sqrtm(mat).real.T, V.T)
-    mu = 1/(1+reg) * mu0 + reg/(1+reg) * (jnp.matmul(S, gbar) + xbar)
     
-    return mu, S
-
-
-
-class LS_GSM:
-    """
-    Wrapper class for using GSM updates to fit a distribution
-    """
     def __init__(self, D, lp, lp_g):
         """
         Inputs:
-          D: (int) Dimensionality (number) of parameters
-          lp : Function to evaluate target log-probability distribution. 
-               (Only used in monitor, not for fitting)
-          lp_g : Function to evaluate score, i.e. the gradient of the target log-probability distribution
+          D: (int) Dimensionality (number) of parameters.
+          lp : Function to evaluate target log-probability distribution
+               whose gradient can be evaluated with jax.grad(lp)
         """
         self.D = D
         self.lp = lp
         self.lp_g = lp_g
+   
 
-        
-    def fit(self, key, mean=None, cov=None, batch_size=2, niter=5000, reg=1e-2, nprint=10, verbose=True, check_goodness=True, monitor=None):
+    @partial(jit, static_argnums=(0, 5, 6))
+    def ngd_update(self, samples, vs, mu, cov, lr=1e-1, reg=1e-5):
+
+        icov = jnp.linalg.inv(cov)
+        #
+        g_p = vs
+        g_q = -jnp.dot(icov, (samples-mu).T).T
+        g = jnp.mean(g_q - g_p, axis=0)
+
+        h_p = jax.vmap(lambda gg: jnp.outer(gg, gg), in_axes=(0))(g_p).mean(axis=0)
+        h_q = -icov
+        h = h_q + h_p + jnp.eye(self.D)*reg
+
+        icovnew = icov + lr * h    
+        covnew = jnp.linalg.inv(icovnew)
+        munew = mu - lr * jnp.dot(covnew, g)
+        return munew, covnew
+
+
+    
+    def fit(self, key, mean=None, cov=None, lr=1e-2, reg=1e-5, batch_size=8, niter=1000, nprint=10, monitor=None, verbose=True, check_goodness=True):
         """
         Main function to fit a multivariate Gaussian distribution to the target
 
@@ -78,24 +56,21 @@ class LS_GSM:
           batch_size : Optional, int. Number of samples to match scores for at every iteration
           niter : Optional, int. Total number of iterations 
           nprint : Optional, int. Number of iterations after which to print logs
-          verbose : Optional, bool. If true, print number of iterations after nprint
-          check_goodness : Optional, bool. Recommended. Wether to check floating point errors in covariance matrix update
           monitor : Optional. Function to monitor the progress and track different statistics for diagnostics. 
                     Function call should take the input tuple (iteration number, [mean, cov], lp, key, number of grad evals).
                     Example of monitor class is provided in utils/monitors.py
-
         Returns:
           mu : Array of shape D, fit of the mean
           cov : Array of shape DxD, fit of the covariance matrix
         """
+        
         if mean is None:
             mean = jnp.zeros(self.D)
         if cov is None:
             cov = jnp.identity(self.D)
 
-        nevals = 1
-        
-        if nprint > niter: nprint = niter    
+        nevals = 1 
+            
         for i in range(niter + 1):
             if (i%(niter//nprint) == 0) and verbose : 
                 print(f'Iteration {i} of {niter}')
@@ -109,9 +84,8 @@ class LS_GSM:
             key, key_sample = random.split(key, 2) 
             np.random.seed(key_sample[0])
             samples = np.random.multivariate_normal(mean=mean, cov=cov, size=batch_size)
-            # samples = MultivariateNormal(loc=mean, covariance_matrix=cov).sample(key, (batch_size,))
             vs = self.lp_g(samples)
-            mean_new, cov_new = ls_gsm_update(samples, vs, mean, cov, reg)
+            mean_new, cov_new = self.ngd_update(samples, vs, mean, cov, lr=lr, reg=reg)
             nevals += batch_size
             
             is_good = self._check_goodness(cov_new)

@@ -57,8 +57,8 @@ class KLMonitor():
                    If provided, also track forward KL divergence
     savepath : Optional, directory to save the losses and plots at saavepoints.
                If None, no plots are saved.
-    plot_samples : Optional, bool. If True, plot loss function at savepoints. 
-      
+    plot_samples : Optional, bool. If True, plot histogram of samples function at savepoints. 
+    plot_loss : Optional, bool. If True, plot loss function at savepoints. Default True      
     """
     
     batch_size : int = 8
@@ -68,6 +68,7 @@ class KLMonitor():
     savepath : str = None
     ref_samples : np.array = None
     plot_samples : bool = False
+    plot_loss : bool = True
     
     def __post_init__(self):
 
@@ -82,6 +83,7 @@ class KLMonitor():
               offset_evals=None,
               ref_samples=None,
               plot_samples=None,
+              plot_loss=None,
               savepath=None):
         self.nevals = []
         self.rkl = []
@@ -92,6 +94,7 @@ class KLMonitor():
         if offset_evals is not None: self.offset_evals = offset_evals
         if ref_samples is not None: self.ref_samples = ref_samples
         if plot_samples is not None: self.plot_samples = plot_samples
+        if plot_loss is not None: self.plot_loss = plot_loss
         if savepath is not None: self.savepath = savepath
         print('offset evals reset to : ', self.offset_evals)
         
@@ -146,11 +149,13 @@ class KLMonitor():
             np.save(f"{self.savepath}/cov_fit", cov)
             np.save(f"{self.savepath}/nevals", self.nevals)
             np.save(f"{self.savepath}/rkl", self.rkl)
-            plotting.plot_loss(self.nevals, self.rkl, self.savepath, fname='rkl', logit=True)
             if self.ref_samples is not None:
                 np.save(f"{self.savepath}/fkl", self.fkl)
-                plotting.plot_loss(self.nevals, self.fkl, self.savepath, fname='fkl', logit=True)
+                if self.plot_loss: plotting.plot_loss(self.nevals, self.fkl, self.savepath, fname='fkl', logit=True)
 
+            if self.plot_loss:
+                plotting.plot_loss(self.nevals, self.rkl, self.savepath, fname='rkl', logit=True)
+                
             if self.plot_samples:
                 try:
                     qsamples = np.random.multivariate_normal(mean=mu, cov=cov, size=1000)
