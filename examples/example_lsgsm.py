@@ -5,6 +5,7 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
 os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"]="platform"
+os.environ['CUDA_VISIBLE_DEVICES'] = ''   # To enable CPU backend
 
 # enable 16 bit precision for jax
 from jax import config
@@ -40,7 +41,7 @@ def setup_model(D=10):
 
 if __name__=="__main__":
     
-    D = 10
+    D = 5
     model, mean, cov, lp, lp_g = setup_model(D=D)
     ref_samples = model.sample(random.PRNGKey(99), (1000,))
 

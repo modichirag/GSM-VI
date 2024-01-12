@@ -7,7 +7,7 @@ from jax.scipy.linalg import sqrtm
 import numpy as np              
 
 
-#@jit
+@jit
 def ls_gsm_update(samples, vs, mu0, S0, reg):
     """
     Returns updated mean and covariance matrix with GSM updates.
@@ -27,7 +27,6 @@ def ls_gsm_update(samples, vs, mu0, S0, reg):
     assert len(samples.shape) == 2
     assert len(vs.shape) == 2
     B = samples.shape[0]
-
     xbar = jnp.mean(samples, axis=0)
     outer_map = jax.vmap(jnp.outer, in_axes=(0, 0))
     xdiff = samples - xbar
