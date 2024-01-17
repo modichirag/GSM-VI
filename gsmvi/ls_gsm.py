@@ -66,12 +66,13 @@ class LS_GSM:
         self.lp_g = lp_g
 
         
-    def fit(self, key, mean=None, cov=None, batch_size=2, niter=5000, reg=1e-2, nprint=10, verbose=True, check_goodness=True, monitor=None):
+    def fit(self, key, regf, mean=None, cov=None, batch_size=2, niter=5000, nprint=10, verbose=True, check_goodness=True, monitor=None):
         """
         Main function to fit a multivariate Gaussian distribution to the target
 
         Inputs:
           key: Random number generator key (jax.random.PRNGKey)
+          mean : Function to return regularizer value at an iteration. See Regularizers class below
           mean : Optional, initial value of the mean. Expected None or array of size D
           cov : Optional, initial value of the covariance matrix. Expected None or array of size DxD
           batch_size : Optional, int. Number of samples to match scores for at every iteration
@@ -110,6 +111,7 @@ class LS_GSM:
             samples = np.random.multivariate_normal(mean=mean, cov=cov, size=batch_size)
             # samples = MultivariateNormal(loc=mean, covariance_matrix=cov).sample(key, (batch_size,))
             vs = self.lp_g(samples)
+            reg = regf(i) 
             mean_new, cov_new = ls_gsm_update(samples, vs, mean, cov, reg)
             nevals += batch_size
             
@@ -139,3 +141,45 @@ class LS_GSM:
             return is_good
         except:
             return is_good
+
+
+
+class Regularizers():
+    """
+    Class for regularizers used in LS_GSM
+    """
+
+    def __init__(self):
+
+        self.counter = 0
+
+    def reset(self):
+
+        self.counter = 0
+
+        
+    def constant(self, reg0):
+
+        def reg_iter(iteration):
+            self.counter +=1 
+            return reg0
+        return reg_iter
+
+    
+    def linear(self, reg0):
+
+        def reg_iter(iteration):
+            self.counter += 1
+            return reg0/self.counter
+        
+        return reg_iter
+
+    
+    def custom(self, func):
+
+        def reg_iter(iteration):
+            self.counter += 1
+            return func(self.counter)
+        
+        return reg_iter
+    

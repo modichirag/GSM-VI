@@ -19,7 +19,7 @@ import numpyro
 import numpyro.distributions as dist
 
 # Import GSM
-from gsmvi.ls_gsm import LS_GSM
+from gsmvi.ls_gsm import LS_GSM, Regularizers
 from gsmvi.monitors import KLMonitor
 #####
 
@@ -47,12 +47,19 @@ if __name__=="__main__":
 
     niter = 100
     batch_size = 2
-    reg = 1e2
+    regularizer = Regularizers()
+
+    # regf = regularizer.constant(100)
+    # regf = regularizer.linear(100)
+    func = lambda i : 100/(1+i)
+    regf = regularizer.custom(func)
+
+    
     lsgsm = LS_GSM(D=D, lp=lp, lp_g=lp_g)
     key = random.PRNGKey(99)
     monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, savepoint=5000,\
                         savepath='./tmp/', plot_samples=False)
-    mean_fit, cov_fit = lsgsm.fit(key, reg=reg, niter=niter, batch_size=batch_size, monitor=monitor)
+    mean_fit, cov_fit = lsgsm.fit(key, regf=regf, niter=niter, batch_size=batch_size, monitor=monitor)
 
     print()
     print("True mean : ", mean)
