@@ -57,9 +57,9 @@ print("For algorithm : ", alg)
 print("For lr and batch : ", lr, batch_size)
 
 ##
-monitor = Monitor(batch_size=32, ref_samples=ref_samples)
-key = random.PRNGKey(99)
+monitor = Monitor(batch_size=32, ref_samples=ref_samples, store_params_iter=-1)
 seed = args.seed
+key = random.PRNGKey(seed)
 np.random.seed(seed)
 x0 = np.random.random(D).astype(np.float32)*0.1
 

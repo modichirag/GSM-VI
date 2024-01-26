@@ -45,8 +45,8 @@ print("For lr and batch : ", lr, batch_size)
 
 ##
 monitor = Monitor(batch_size=32, ref_samples=ref_samples, store_params_iter=1)
-key = random.PRNGKey(99)
 seed = args.seed
+key = random.PRNGKey(seed)
 np.random.seed(seed)
 x0 = np.random.random(D).astype(np.float32)*0.1
 
@@ -76,7 +76,7 @@ elif alg == 'ngd':
 elif alg == 'lsgsm':
     lsgsm = LS_GSM(D=D, lp=lp, lp_g=lp_g)
     regf = setup_regularizer(args.reg)[args.lambdat]
-    path = f"{path}/{alg}/B{batch_size}-lamdat{args.lambdat}-reg{args.reg:0.2f}/S{seed}/"
+    path = f"{path}/{alg}/B{batch_size}-lambdat{args.lambdat}-reg{args.reg:0.2f}/S{seed}/"
     print(f"save in : {path}")
     mean_fit, cov_fit = lsgsm.fit(key, regf=regf, batch_size=batch_size, mean=x0,
                                 niter=args.niter, monitor=monitor)

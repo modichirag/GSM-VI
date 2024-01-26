@@ -24,7 +24,8 @@ parser.add_argument('--seed', type=int, default=99, help='seed between 0-999, de
 parser.add_argument('--niter', type=int, default=1001, help='number of iterations in training')
 parser.add_argument('--batch', type=int, default=2, help='batch size, default=2')
 parser.add_argument('--lr', type=float, default=1e-2, help='learning rate')
-parser.add_argument('--reg', type=float, default=1e-5, help='regularizer for ngd or GSM')
+parser.add_argument('--reg', type=float, default=1e-2, help='regularizer for ngd and lsgsm')
+parser.add_argument('--lambdat', type=int, default=0, help='which regularizer to use')
 #arguments for path name
 parser.add_argument('--suffix', type=str, default="", help='suffix, default=""')
 
@@ -62,10 +63,9 @@ np.save(f"{path}/scale", scale)
 np.save(f"{path}/ref_samples", ref_samples)
 
 ##
-monitor = Monitor(batch_size=32, ref_samples=ref_samples, plot_samples=False, savepoint=10)
-key = random.PRNGKey(99)
-
+monitor = Monitor(batch_size=32, ref_samples=ref_samples, plot_samples=False, savepoint=10, store_params_iter=-1)
 seed = args.seed
+key = random.PRNGKey(seed)
 np.random.seed(seed)
 x0 = np.random.random(D).astype(np.float32)*0.1
 
@@ -80,6 +80,7 @@ elif alg == 'advi':
     advi = ADVI(D=D, lp=lp)
     path = f"{path}/{alg}/B{batch_size:02d}-lr{lr:0.3f}/S{seed}/"    
     opt = optax.adam(learning_rate=lr)
+    print(f"learning rate : {lr}")
     mean_fit, cov_fit, losses = advi.fit(key, opt, batch_size=batch_size, mean=x0, 
                                          niter=args.niter, monitor=monitor)
     
@@ -91,8 +92,10 @@ elif alg == 'ngd':
  
 elif alg == 'lsgsm':
     lsgsm = LS_GSM(D=D, lp=lp, lp_g=lp_g)
-    path = f"{path}/{alg}/B{batch_size}-reg{args.reg:0.2f}/S{seed}/"    
-    mean_fit, cov_fit = lsgsm.fit(key, reg=args.reg, batch_size=batch_size, mean=x0,
+    regf = setup_regularizer(args.reg)[args.lambdat]
+    path = f"{path}/{alg}/B{batch_size}-lambdat{args.lambdat}-reg{args.reg:0.2f}/S{seed}/"
+    print(f"save in : {path}")
+    mean_fit, cov_fit = lsgsm.fit(key, regf=regf, batch_size=batch_size, mean=x0,
                                 niter=args.niter, monitor=monitor)
    
 
