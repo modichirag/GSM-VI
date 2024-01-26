@@ -20,7 +20,8 @@ parser.add_argument('--seed', type=int, default=99, help='seed between 0-999, de
 parser.add_argument('--niter', type=int, default=1001, help='number of iterations in training')
 parser.add_argument('--batch', type=int, default=2, help='batch size, default=2')
 parser.add_argument('--lr', type=float, default=1e-2, help='learning rate')
-parser.add_argument('--reg', type=float, default=1e-5, help='regularizer for ngd')
+parser.add_argument('--reg', type=float, default=1e-2, help='regularizer for ngd and lsgsm')
+parser.add_argument('--lambdat', type=int, default=0, help='which regularizer to use')
 #arguments for path name
 parser.add_argument('--suffix', type=str, default="", help='suffix, default=""')
 
@@ -38,7 +39,7 @@ os.makedirs(path, exist_ok=True)
 np.save(f"{path}/mean", mean)
 np.save(f"{path}/cov", cov)
     
-print(f"save in : {path}")
+print(f"Main folder path : {path}")
 print("For algorithm : ", alg)
 print("For lr and batch : ", lr, batch_size)
 
@@ -52,12 +53,14 @@ x0 = np.random.random(D).astype(np.float32)*0.1
 if alg == 'gsm':
     gsm = GSM(D=D, lp=lp, lp_g=lp_g)
     path = f"{path}/{alg}/B{batch_size}/S{seed}/"    
+    print(f"save in : {path}")
     mean_fit, cov_fit = gsm.fit(key, batch_size=batch_size,
                                 niter=args.niter, monitor=monitor)
 
 elif alg == 'advi':
     advi = ADVI(D=D, lp=lp)
     path = f"{path}/{alg}/B{batch_size}-lr{lr:0.3f}/S{seed}/"       
+    print(f"save in : {path}")
     opt = optax.adam(learning_rate=lr)
     mean_fit, cov_fit, losses = advi.fit(key, opt, batch_size=batch_size, 
                                          niter=args.niter, monitor=monitor)
@@ -65,14 +68,17 @@ elif alg == 'advi':
 elif alg == 'ngd':
     ngd = NGD(D=D, lp=lp, lp_g=lp_g)
     path = f"{path}/{alg}/B{batch_size}-lr{lr:0.3f}-reg{args.reg:0.3f}/S{seed}/"    
+    print(f"save in : {path}")
     mean_fit, cov_fit = ngd.fit(key, lr=args.lr, batch_size=batch_size,
                                 reg=args.reg, niter=args.niter, monitor=monitor)
     
 
 elif alg == 'lsgsm':
     lsgsm = LS_GSM(D=D, lp=lp, lp_g=lp_g)
-    path = f"{path}/{alg}/B{batch_size}-reg{args.reg:0.2f}/S{seed}/"    
-    mean_fit, cov_fit = lsgsm.fit(key, reg=args.reg, batch_size=batch_size, mean=x0,
+    regf = setup_regularizer(args.reg)[args.lambdat]
+    path = f"{path}/{alg}/B{batch_size}-lamdat{args.lambdat}-reg{args.reg:0.2f}/S{seed}/"
+    print(f"save in : {path}")
+    mean_fit, cov_fit = lsgsm.fit(key, regf=regf, batch_size=batch_size, mean=x0,
                                 niter=args.niter, monitor=monitor)
    
 

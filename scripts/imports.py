@@ -23,7 +23,7 @@ from gsmvi.ls_gsm import LS_GSM
 from gsmvi.ngd import NGD
 from gsmvi.initializers import lbfgs_init
 from gsmvi.monitors import KLMonitor as Monitor
-
+from setup_regs import setup_regularizer
 
 
 def setup_gauss_model(D, seed=123, noise=1e-2, mean=None):
