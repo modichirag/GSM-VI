@@ -43,7 +43,7 @@ print("For algorithm : ", alg)
 print("For lr and batch : ", lr, batch_size)
 
 ##
-monitor = Monitor(batch_size=32, ref_samples=ref_samples)
+monitor = Monitor(batch_size=32, ref_samples=ref_samples, store_params_iter=1)
 key = random.PRNGKey(99)
 seed = args.seed
 np.random.seed(seed)
@@ -79,6 +79,9 @@ elif alg == 'lsgsm':
 os.makedirs(path, exist_ok=True)
 np.save(f"{path}/mean", mean_fit)
 np.save(f"{path}/cov", cov_fit)
+np.save(f"{path}/means", monitor.means)
+np.save(f"{path}/covs", monitor.covs)
+np.save(f"{path}/iparams", monitor.iparams)
 np.save(f"{path}/nevals", monitor.nevals)
 np.save(f"{path}/rkl", monitor.rkl)
 np.save(f"{path}/fkl", monitor.fkl)

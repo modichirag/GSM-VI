@@ -51,11 +51,13 @@ class KLMonitor():
     batch_size: (int) Number of samples to use to estimate divergence
     checkpoint: (int) Number of iterations after which to run monitor
     savepoint : (int) Number of iterations after which to save progress
+    store_params_iter : (int) Number of iterations after which to store samples. 
+                      Default set to -1 which does not store parameters.
     offset_evals: (int) Value with which to offset number of gradient evaluatoins
                     Used to account for gradient evaluations done in warmup or initilization        
     ref_samples: Optional, samples from the target distribution.
                    If provided, also track forward KL divergence
-    savepath : Optional, directory to save the losses and plots at saavepoints.
+    savepath : Optional, directory to save the losses and plots at savepoints.
                If None, no plots are saved.
     plot_samples : Optional, bool. If True, plot histogram of samples function at savepoints. 
     plot_loss : Optional, bool. If True, plot loss function at savepoints. Default True      
@@ -69,11 +71,15 @@ class KLMonitor():
     ref_samples : np.array = None
     plot_samples : bool = False
     plot_loss : bool = True
+    store_params_iter : int = -1
     
     def __post_init__(self):
 
         self.rkl = []
         self.fkl = []
+        self.means = []
+        self.covs = []
+        self.iparams = []
         self.nevals = []        
         
     def reset(self,
@@ -88,6 +94,8 @@ class KLMonitor():
         self.nevals = []
         self.rkl = []
         self.fkl = []
+        self.means = []
+        self.covs = []
         if batch_size is not None: self.batch_size = batch_size
         if checkpoint is not None: self.checkpoint = checkpoint
         if savepoint is not None: self.savepoint = savepoint
@@ -126,7 +134,11 @@ class KLMonitor():
             #q = MultivariateNormal(loc=mu, covariance_matrix=cov)
             #q_lp = jit(lambda x: jnp.sum(q.log_prob(x)))
             self.rkl.append(reverse_kl(qsamples, mu, cov, lp))
-
+            if (self.store_params_iter > 0) & (i%self.store_params_iter ==0 ) :
+                self.means.append(mu)
+                self.covs.append(cov)
+                self.iparams.append(i)
+                
             if self.ref_samples is not None:
                 idx = np.random.permutation(self.ref_samples.shape[0])[:self.batch_size]
                 psamples = self.ref_samples[idx]
@@ -145,8 +157,11 @@ class KLMonitor():
             print("Savepoint: saving current fit, loss and diagnostic plots")
             
             os.makedirs(self.savepath, exist_ok=True)
-            np.save(f"{self.savepath}/mu_fit", mu)
+            np.save(f"{self.savepath}/mean_fit", mu)
             np.save(f"{self.savepath}/cov_fit", cov)
+            np.save(f"{self.savepath}/means", self.means)
+            np.save(f"{self.savepath}/covs", self.covs)
+            np.save(f"{self.savepath}/iparams", self.iparams)
             np.save(f"{self.savepath}/nevals", self.nevals)
             np.save(f"{self.savepath}/rkl", self.rkl)
             if self.ref_samples is not None:
