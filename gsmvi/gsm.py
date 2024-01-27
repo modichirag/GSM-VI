@@ -76,7 +76,7 @@ class GSM:
         self.lp_g = lp_g
 
         
-    def fit(self, key, mean=None, cov=None, batch_size=2, niter=5000, nprint=10, verbose=True, check_goodness=True, monitor=None):
+    def fit(self, key, mean=None, cov=None, batch_size=2, niter=5000, nprint=10, verbose=True, check_goodness=True, monitor=None, retries=10):
         """
         Main function to fit a multivariate Gaussian distribution to the target
 
@@ -114,14 +114,24 @@ class GSM:
                     nevals = 0
                     
             # Can generate samples from jax distribution (commented below), but using numpy is faster
-            key, key_sample = random.split(key, 2) 
-            np.random.seed(key_sample[0])
-            samples = np.random.multivariate_normal(mean=mean, cov=cov, size=batch_size)
-            # samples = MultivariateNormal(loc=mean, covariance_matrix=cov).sample(key, (batch_size,))
-            vs = self.lp_g(samples)
-            mean_new, cov_new = gsm_update(samples, vs, mean, cov)
-            nevals += batch_size
-            
+            j = 0
+            while True:         # Sometimes run crashes due to a bad sample. Avoid that by re-trying. 
+                try:
+                    key, key_sample = random.split(key, 2) 
+                    np.random.seed(key_sample[0])
+                    samples = np.random.multivariate_normal(mean=mean, cov=cov, size=batch_size)
+                    # samples = MultivariateNormal(loc=mean, covariance_matrix=cov).sample(key, (batch_size,))
+                    vs = self.lp_g(samples)
+                    mean_new, cov_new = gsm_update(samples, vs, mean, cov)
+                    nevals += batch_size
+                    break
+                except Exception as e:
+                    if j < retries :
+                        j += 1 
+                        print(f"Failed with exception {e}")
+                        print(f"Trying again {j} of {retries}")
+                    else : raise e
+                    
             is_good = self._check_goodness(cov_new)
             if is_good:
                 mean, cov = mean_new, cov_new

@@ -18,7 +18,7 @@ class BBVI():
         self.lp_g = lp_g
         self.idx_tril = jnp.stack(jnp.tril_indices(D)).T
 
-    def minimize_loss(self, loss_function, key, opt, mean=None, cov=None, batch_size=8, niter=1000, nprint=10, monitor=None):
+    def minimize_loss(self, loss_function, key, opt, mean=None, cov=None, batch_size=8, niter=1000, nprint=10, monitor=None, retries=10):
         """
         Main function to fit a multivariate Gaussian distribution to the target
 
@@ -74,8 +74,18 @@ class BBVI():
                     monitor(i, [mean, cov], self.lp, key, nevals=nevals)
                     nevals = 0
 
-            params, opt_state, loss = opt_step(params, opt_state, key)
-            key, _ = random.split(key)
+            j = 0
+            while True:         # Sometimes run crashes due to a bad sample. Avoid that by re-trying. 
+                try:
+                    key, _ = random.split(key)
+                    params, opt_state, loss = opt_step(params, opt_state, key)
+                    break
+                except Exception as e:
+                    if j < retries :
+                        j += 1 
+                        print(f"Failed with exception {e}")
+                        print(f"Trying again {j} of {retries}")
+                    else : raise e
             losses.append(loss)
             nevals += batch_size
 
@@ -124,7 +134,7 @@ class ADVI(BBVI):
         negelbo = -1. * elbo
         return negelbo
 
-    def fit(self, key, opt, mean=None, cov=None, batch_size=8, niter=1000, nprint=10, monitor=None):
+    def fit(self, key, opt, mean=None, cov=None, batch_size=8, niter=1000, nprint=10, monitor=None, retries=10):
         """
         Main function to fit a multivariate Gaussian distribution to the target
 
@@ -142,7 +152,7 @@ class ADVI(BBVI):
           mu : Array of shape D, fit of the mean
           cov : Array of shape DxD, fit of the covariance matrix        """
 
-        return self.minimize_loss(self.loss_function, key, opt, mean=mean, cov=cov, batch_size=batch_size, niter=niter, nprint=nprint, monitor=monitor)
+        return self.minimize_loss(self.loss_function, key, opt, mean=mean, cov=cov, batch_size=batch_size, niter=niter, nprint=nprint, monitor=monitor, retries=retries)
 
 
 ################################################################################
@@ -180,7 +190,7 @@ class Scorenorm(BBVI):
         return scorenorm
         
 
-    def fit(self, key, opt, mean=None, cov=None, batch_size=8, niter=1000, nprint=10, monitor=None):
+    def fit(self, key, opt, mean=None, cov=None, batch_size=8, niter=1000, nprint=10, monitor=None, retries=10):
         """
         Main function to fit a multivariate Gaussian distribution to the target
 
@@ -199,4 +209,4 @@ class Scorenorm(BBVI):
           cov : Array of shape DxD, fit of the covariance matrix
         """
                                         
-        return self.minimize_loss(self.loss_function, key, opt, mean=mean, cov=cov, batch_size=batch_size, niter=niter, nprint=nprint, monitor=monitor)
+        return self.minimize_loss(self.loss_function, key, opt, mean=mean, cov=cov, batch_size=batch_size, niter=niter, nprint=nprint, monitor=monitor, retries=retries)
