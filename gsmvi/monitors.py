@@ -166,10 +166,13 @@ class KLMonitor():
             np.save(f"{self.savepath}/rkl", self.rkl)
             if self.ref_samples is not None:
                 np.save(f"{self.savepath}/fkl", self.fkl)
-                if self.plot_loss: plotting.plot_loss(self.nevals, self.fkl, self.savepath, fname='fkl', logit=True)
-
+                try:
+                    if self.plot_loss: plotting.plot_loss(self.nevals, self.fkl, self.savepath, fname='fkl', logit=True)
+                except Exception as e: print(e)
+                
             if self.plot_loss:
-                plotting.plot_loss(self.nevals, self.rkl, self.savepath, fname='rkl', logit=True)
+                try: plotting.plot_loss(self.nevals, self.rkl, self.savepath, fname='rkl', logit=True)
+                except Exception as e: print(e)
                 
             if self.plot_samples:
                 try:

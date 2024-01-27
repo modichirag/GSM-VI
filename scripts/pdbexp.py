@@ -55,9 +55,11 @@ path = f"{basepath}/PDB_{args.modeln}/"
 print(f"Parent folder in : {path}")
 print("For algorithm : ", alg)
 print("For lr and batch : ", lr, batch_size)
+np.save(f"/{path}/ref_samples", ref_samples)
 
 ##
-monitor = Monitor(batch_size=32, ref_samples=ref_samples, store_params_iter=-1)
+monitor = Monitor(batch_size=32, ref_samples=ref_samples, store_params_iter=-1,
+                  plot_samples=True, savepoint=1000)
 seed = args.seed
 key = random.PRNGKey(seed)
 np.random.seed(seed)
@@ -65,9 +67,10 @@ x0 = np.random.random(D).astype(np.float32)*0.1
 
 if alg == 'gsm':
     gsm = GSM(D=D, lp=lp, lp_g=lp_g)
-    path = f"{path}/{alg}/B{batch_size}/S{seed}/"    
+    path = f"{path}/{alg}/B{batch_size}/S{seed}/"
+    monitor.savepath = path
     print(f"save in : {path}")
-    mean_fit, cov_fit = gsm.fit(key, batch_size=batch_size,
+    mean_fit, cov_fit = gsm.fit(key, batch_size=batch_size, mean=x0,
                                 niter=args.niter, monitor=monitor)
 
 elif alg == 'advi':
@@ -75,14 +78,14 @@ elif alg == 'advi':
     opt = optax.adam(learning_rate=lr)
     path = f"{path}/{alg}/B{batch_size}-lr{lr:0.3f}/S{seed}/"       
     print(f"save in : {path}")
-    mean_fit, cov_fit, losses = advi.fit(key, opt, batch_size=batch_size, 
+    mean_fit, cov_fit, losses = advi.fit(key, opt, batch_size=batch_size, mean=x0,
                                          niter=args.niter, monitor=monitor)
 
 elif alg == 'ngd':
     ngd = NGD(D=D, lp=lp, lp_g=lp_g)
     path = f"{path}/{alg}/B{batch_size}-lr{lr:0.3f}-reg{args.reg:0.3f}/S{seed}/"    
     print(f"save in : {path}")
-    mean_fit, cov_fit = ngd.fit(key, lr=args.lr, batch_size=batch_size,
+    mean_fit, cov_fit = ngd.fit(key, lr=args.lr, batch_size=batch_size, mean=x0,
                                 reg=args.reg, niter=args.niter, monitor=monitor)
     
 
