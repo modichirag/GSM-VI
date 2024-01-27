@@ -66,6 +66,11 @@ class BBVI():
                 print(f'Iteration {i} of {niter}')
             if monitor is not None:
                 if (i%monitor.checkpoint) == 0:
+                    mean = params[0]
+                    scales = params[1]
+                    scale_tril = jnp.zeros((self.D, self.D))
+                    scale_tril = scale_tril.at[self.idx_tril[:, 0], self.idx_tril[:, 1]].set(scales)
+                    cov = np.matmul(scale_tril, scale_tril.T)
                     monitor(i, [mean, cov], self.lp, key, nevals=nevals)
                     nevals = 0
 
