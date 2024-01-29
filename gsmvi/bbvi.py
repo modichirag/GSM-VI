@@ -79,6 +79,7 @@ class BBVI():
                 try:
                     key, _ = random.split(key)
                     params, opt_state, loss = opt_step(params, opt_state, key)
+                    nevals += batch_size
                     break
                 except Exception as e:
                     if j < retries :
@@ -87,7 +88,6 @@ class BBVI():
                         print(f"Trying again {j} of {retries}")
                     else : raise e
             losses.append(loss)
-            nevals += batch_size
 
 
         # Convert back to mean and covariance matrix

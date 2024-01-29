@@ -43,6 +43,7 @@ def ls_gsm_update(samples, vs, mu0, S0, reg):
     mat = I + 4 * jnp.matmul(U, V)
     # S = 2 * jnp.matmul(V, jnp.linalg.inv(I + sqrtm(mat).real))
     S = 2 * jnp.linalg.solve(I + sqrtm(mat).real.T, V.T)
+    S = (S + S.T)/2.
     mu = 1/(1+reg) * mu0 + reg/(1+reg) * (jnp.matmul(S, gbar) + xbar)
     
     return mu, S
@@ -114,9 +115,9 @@ class LS_GSM:
                     samples = np.random.multivariate_normal(mean=mean, cov=cov, size=batch_size)
                     # samples = MultivariateNormal(loc=mean, covariance_matrix=cov).sample(key, (batch_size,))
                     vs = self.lp_g(samples)
+                    nevals += batch_size
                     reg = regf(i) 
                     mean_new, cov_new = ls_gsm_update(samples, vs, mean, cov, reg)
-                    nevals += batch_size
                     break
                 except Exception as e:
                     if j < retries :

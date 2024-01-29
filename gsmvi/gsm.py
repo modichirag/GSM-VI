@@ -82,8 +82,8 @@ class GSM:
 
         Inputs:
           key: Random number generator key (jax.random.PRNGKey)
-          mean : Optional, initial value of the mean. Expected None or array of size D
-          cov : Optional, initial value of the covariance matrix. Expected None or array of size DxD
+          mean : Optional, initial value of the mean. Expected None or array of size D. Default=0.
+          cov : Optional, initial value of the covariance matrix. Expected None or array of size DxD. Default=identity
           batch_size : Optional, int. Number of samples to match scores for at every iteration
           niter : Optional, int. Total number of iterations 
           nprint : Optional, int. Number of iterations after which to print logs
@@ -122,8 +122,8 @@ class GSM:
                     samples = np.random.multivariate_normal(mean=mean, cov=cov, size=batch_size)
                     # samples = MultivariateNormal(loc=mean, covariance_matrix=cov).sample(key, (batch_size,))
                     vs = self.lp_g(samples)
-                    mean_new, cov_new = gsm_update(samples, vs, mean, cov)
                     nevals += batch_size
+                    mean_new, cov_new = gsm_update(samples, vs, mean, cov)
                     break
                 except Exception as e:
                     if j < retries :
