@@ -43,7 +43,6 @@ def ls_gsm_update(samples, vs, mu0, S0, reg):
     mat = I + 4 * jnp.matmul(U, V)
     # S = 2 * jnp.matmul(V, jnp.linalg.inv(I + sqrtm(mat).real))
     S = 2 * jnp.linalg.solve(I + sqrtm(mat).real.T, V.T)
-    S = (S + S.T)/2.
     mu = 1/(1+reg) * mu0 + reg/(1+reg) * (jnp.matmul(S, gbar) + xbar)
     
     return mu, S
@@ -67,7 +66,7 @@ class LS_GSM:
         self.lp_g = lp_g
 
         
-    def fit(self, key, regf, mean=None, cov=None, batch_size=2, niter=5000, nprint=10, verbose=True, check_goodness=True, monitor=None, retries=10):
+    def fit(self, key, regf, mean=None, cov=None, batch_size=2, niter=5000, nprint=10, verbose=True, check_goodness=True, monitor=None, retries=10, jitter=1e-6):
         """
         Main function to fit a multivariate Gaussian distribution to the target
 
@@ -118,6 +117,8 @@ class LS_GSM:
                     nevals += batch_size
                     reg = regf(i) 
                     mean_new, cov_new = ls_gsm_update(samples, vs, mean, cov, reg)
+                    cov_new += np.eye(self.D) + jitter # jitter covariance matrix
+                    cov_new = (cov_new + cov_new.T)/2.
                     break
                 except Exception as e:
                     if j < retries :
