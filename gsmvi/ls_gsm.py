@@ -117,7 +117,7 @@ class LS_GSM:
                     nevals += batch_size
                     reg = regf(i) 
                     mean_new, cov_new = ls_gsm_update(samples, vs, mean, cov, reg)
-                    cov_new += np.eye(self.D) + jitter # jitter covariance matrix
+                    cov_new += np.eye(self.D)*jitter # jitter covariance matrix
                     cov_new = (cov_new + cov_new.T)/2.
                     break
                 except Exception as e:
@@ -146,8 +146,9 @@ class LS_GSM:
         '''
         is_good = False
         try:
-            if (np.isnan(np.linalg.cholesky(cov))).any():            
-                nan_update.append(j)
+            if (np.isnan(np.linalg.cholesky(cov))).any():
+                #nan_update.append(j)
+                pass
             else:
                 is_good = True
             return is_good
