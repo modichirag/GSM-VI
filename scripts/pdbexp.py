@@ -21,6 +21,9 @@ parser.add_argument('--batch', type=int, default=2, help='batch size, default=2'
 parser.add_argument('--lr', type=float, default=1e-2, help='learning rate')
 parser.add_argument('--reg', type=float, default=1e-2, help='regularizer for ngd and lsgsm')
 parser.add_argument('--lambdat', type=int, default=0, help='which regularizer to use')
+parser.add_argument('--modeinit', type=int, default=0, help='initialize from mode')
+parser.add_argument('--lbfgsinit', type=int, default=0, help='initialize from lbfgs')
+parser.add_argument('--scaleinit', type=float, default=1., help='scale the initial covariance')
 #arguments for path name
 parser.add_argument('--suffix', type=str, default="", help='suffix, default=""')
 
@@ -42,59 +45,84 @@ def setup_pdb(model_n):
     lpjax, lp_itemjax = jaxify_bs(model)   
     lp = model.lp
     lp_g = lambda x: model.lp_g(x)[1]
-    lpjaxsum = jit(lambda x: jnp.mean(lpjax(x)))
-    ref_samples = model.samples_unc.copy()
+    lpjaxsum = jit(lambda x: jnp.sum(lpjax(x)))
+    try:
+        ref_samples = model.samples_unc.copy()
+    except Exception as e:
+        print(e)
+        ref_samples = None
 
-    return D, lpjaxsum, lp_g, ref_samples
+    return D, lpjaxsum, lp, lp_g, ref_samples
 
 
-D, lp, lp_g, ref_samples = setup_pdb(args.modeln)
+D, lpjax, lp, lp_g, ref_samples = setup_pdb(args.modeln)
 
 basepath = "/mnt/ceph/users/cmodi/ls-gsm/"
 path = f"{basepath}/PDB_{args.modeln}/"
 print(f"Parent folder in : {path}")
 print("For algorithm : ", alg)
 print("For lr and batch : ", lr, batch_size)
-np.save(f"/{path}/ref_samples", ref_samples)
+if ref_samples is not None: np.save(f"/{path}/ref_samples", ref_samples)
 
-##
-monitor = Monitor(batch_size=32, ref_samples=ref_samples, store_params_iter=-1,
-                  plot_samples=True, savepoint=1000)
+#####
+monitor = Monitor(batch_size=128, ref_samples=ref_samples, store_params_iter=20,
+                  plot_samples=False, savepoint=1000)
 seed = args.seed
 key = random.PRNGKey(seed)
 np.random.seed(seed)
-x0 = np.random.random(D).astype(np.float32)*0.1
+x0 = np.random.random(D).astype(np.float64)*0.1
+cov0 = np.identity(D) * args.scaleinit
+suffix=''
 
+if args.modeinit:
+    suffix="-modeinit"
+    x0, _, res = lbfgs_init(x0, lp, lp_g)
+    monitor.offset_evals = res.nfev
+    print(f'lbfgs output : \n{res}\n')
+
+if args.lbfgsinit:
+    suffix="-lbfgsinit"
+    x0, cov0, res = lbfgs_init(x0, lp, lp_g)
+    monitor.offset_evals = res.nfev
+    print(f'lbfgs output : \n{res}\n')
+
+if args.scaleinit != 1: suffix += f'-scaleinit{args.scaleinit:0.2f}'
+############################################    
 if alg == 'gsm':
-    gsm = GSM(D=D, lp=lp, lp_g=lp_g)
-    path = f"{path}/{alg}/B{batch_size}/S{seed}/"
+    gsm = GSM(D=D, lp=lpjax, lp_g=lp_g)
+    path = f"{path}/{alg}/B{batch_size}{suffix}/S{seed}/"
     monitor.savepath = path
     print(f"save in : {path}")
-    mean_fit, cov_fit = gsm.fit(key, batch_size=batch_size, mean=x0,
+    mean_fit, cov_fit = gsm.fit(key, batch_size=batch_size, mean=x0, cov=cov0,
                                 niter=args.niter, monitor=monitor)
 
 elif alg == 'advi':
-    advi = ADVI(D=D, lp=lp)
+    advi = ADVI(D=D, lp=lpjax)
     opt = optax.adam(learning_rate=lr)
-    path = f"{path}/{alg}/B{batch_size}-lr{lr:0.3f}/S{seed}/"       
+    path = f"{path}/{alg}/B{batch_size}-lr{lr:0.3f}{suffix}/S{seed}/"       
+    monitor.savepath = path
     print(f"save in : {path}")
-    mean_fit, cov_fit, losses = advi.fit(key, opt, batch_size=batch_size, mean=x0,
+    mean_fit, cov_fit, losses = advi.fit(key, opt, batch_size=batch_size, mean=x0, cov=cov0,
                                          niter=args.niter, monitor=monitor)
 
 elif alg == 'ngd':
-    ngd = NGD(D=D, lp=lp, lp_g=lp_g)
-    path = f"{path}/{alg}/B{batch_size}-lr{lr:0.3f}-reg{args.reg:0.3f}/S{seed}/"    
+    ngd = NGD(D=D, lp=lpjax, lp_g=lp_g)
+    path = f"{path}/{alg}/B{batch_size}-lr{lr:0.3f}-reg{args.reg:0.3f}{suffix}/S{seed}/"    
+    monitor.savepath = path
     print(f"save in : {path}")
-    mean_fit, cov_fit = ngd.fit(key, lr=args.lr, batch_size=batch_size, mean=x0,
+    mean_fit, cov_fit = ngd.fit(key, lr=args.lr, batch_size=batch_size, mean=x0, cov=cov0,
                                 reg=args.reg, niter=args.niter, monitor=monitor)
     
 
 elif alg == 'lsgsm':
-    lsgsm = LS_GSM(D=D, lp=lp, lp_g=lp_g)
-    regf = setup_regularizer(args.reg)[args.lambdat]
-    path = f"{path}/{alg}/B{batch_size}-lambdat{args.lambdat}-reg{args.reg:0.2f}/S{seed}/"
+    lsgsm = LS_GSM(D=D, lp=lpjax, lp_g=lp_g)
+    reg = args.reg
+    if reg == 0: reg = batch_size * D
+    regf = setup_regularizer(reg)[args.lambdat]
+    path = f"{path}/{alg}/B{batch_size}-lambdat{args.lambdat}-reg{args.reg:0.2f}{suffix}/S{seed}/"
+    monitor.savepath = path
     print(f"save in : {path}")
-    mean_fit, cov_fit = lsgsm.fit(key, regf=regf, batch_size=batch_size, mean=x0,
+    mean_fit, cov_fit = lsgsm.fit(key, regf=regf, batch_size=batch_size, mean=x0, cov=cov0,
                                 niter=args.niter, monitor=monitor)
    
 
