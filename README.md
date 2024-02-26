@@ -1,18 +1,20 @@
 # GSM-VI
-### Code for Variational Inference (VI) with Gaussian Score Matching (GSM).
+### Code for Gaussian Score Matching (GSM) VI and "batch and match" (BaM) VI
 
-This repo implements code for paper https://arxiv.org/abs/2307.07849.
+This repo implements code for the methods:
+1. Gaussian Score Matching VI (GSM-VI). NeurIPS 2023. https://arxiv.org/abs/2307.07849.
+2. Batch and match (BaM): black-box variational inference using a score-based divergence.
 
-GSM-VI fits a multivariate Gasussian distribution with dense covaraince matrix to the target distribution
-by score matching. It only requires access to the score function i.e. the gradient of the target log-probability
+Both GSM-VI and BaM fit a multivariate Gaussian distribution with a dense covariance matrix to the target distribution
+by score matching. The methods only require access to the score function, i.e., the gradient of the target log-probability
 distribution and implements analytic updates for the variational parameters (mean and covariance matrix).
 
-The algorithm is implemented in Jax for performance reasons like jit compilation,
+The algorithms are implemented in JAX for performance reasons like jit compilation,
 but it does not rely on this backend as long as one can provide the score function.
-To re-inforce this, we also provide a pure numpy implementation in `src/gsm_numpy.py`,
+To re-inforce this, we also provide a pure numpy implementation for GSM in `src/gsm_numpy.py`,
 and this can be adapted to other backends.
 
-For comaprison, we also provide implementations of two other common variants of fitting a
+For comparison, we also provide implementations of two other common variants of fitting a
 multivariate Gaussian distribution with VI:<br>
 ADVI (https://arxiv.org/abs/1603.00788)
 and Pathfinder (https://arxiv.org/abs/2108.03782). <br>
@@ -27,7 +29,7 @@ The target distributions in example files are implemented in `numpyro`.<br>
 For using other algorithms and utilities, following optional packages are requied: <br>
 ADVI uses `optax` for maximizing ELBO.<br>
 Pathfinder uses the implementation in `Blackjax` which needs to be installed.<br>
-LBFGS initialization for initializing variational distributions uses `scipy`. 
+LBFGS initialization for initializing variational distributions uses `scipy`.
 
 
 ### Starting point :<br>
@@ -36,6 +38,7 @@ with all three algorithms. <br>
 ```
 cd examples
 python3 example_gsm.py
+python3 example_bam.py
 python3 example_advi.py
 python3 example_pathfinder.py
 ```
