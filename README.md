@@ -3,7 +3,7 @@
 
 This repo implements code for the methods:
 1. Gaussian Score Matching VI (GSM-VI). NeurIPS 2023. https://arxiv.org/abs/2307.07849.
-2. Batch and match (BaM): black-box variational inference using a score-based divergence.
+2. Batch and match (BaM): black-box variational inference using a score-based divergence. arXiv preprint. https://arxiv.org/abs/2402.14758.
 
 Both GSM-VI and BaM fit a multivariate Gaussian distribution with a dense covariance matrix to the target distribution
 by score matching. The methods only require access to the score function, i.e., the gradient of the target log-probability
