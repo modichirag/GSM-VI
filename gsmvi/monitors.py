@@ -10,6 +10,8 @@ from numpyro.distributions import MultivariateNormal
 
 from . import plotting
 
+import time
+
 # def reverse_kl(samples, lpq, lpp):
 #     logl = jnp.mean(lpp(samples))
 #     logq = jnp.mean(lpq(samples))
@@ -40,29 +42,29 @@ def forward_kl(samples, mu, cov, lp):
     fkl /= samples.shape[0]
     return fkl
 
-    
+
 @dataclass
 class KLMonitor():
     """
     Class to monitor KL divergence during optimization for VI
-    
+
     Inputs:
-    
+
     batch_size: (int) Number of samples to use to estimate divergence
     checkpoint: (int) Number of iterations after which to run monitor
     savepoint : (int) Number of iterations after which to save progress
-    store_params_iter : (int) Number of iterations after which to store samples. 
+    store_params_iter : (int) Number of iterations after which to store samples.
                       Default set to -1 which does not store parameters.
     offset_evals: (int) Value with which to offset number of gradient evaluatoins
-                    Used to account for gradient evaluations done in warmup or initilization        
+                    Used to account for gradient evaluations done in warmup or initilization
     ref_samples: Optional, samples from the target distribution.
                    If provided, also track forward KL divergence
     savepath : Optional, directory to save the losses and plots at savepoints.
                If None, no plots are saved.
-    plot_samples : Optional, bool. If True, plot histogram of samples function at savepoints. 
-    plot_loss : Optional, bool. If True, plot loss function at savepoints. Default True      
+    plot_samples : Optional, bool. If True, plot histogram of samples function at savepoints.
+    plot_loss : Optional, bool. If True, plot loss function at savepoints. Default True
     """
-    
+
     batch_size : int = 8
     checkpoint : int = 10
     savepoint : int = 100
@@ -72,7 +74,7 @@ class KLMonitor():
     plot_samples : bool = False
     plot_loss : bool = True
     store_params_iter : int = -1
-    
+
     def __post_init__(self):
 
         self.rkl = []
@@ -80,10 +82,11 @@ class KLMonitor():
         self.means = []
         self.covs = []
         self.iparams = []
-        self.nevals = []        
-        
+        self.nevals = []
+        self.times = []
+
     def reset(self,
-              batch_size=None, 
+              batch_size=None,
               checkpoint=None,
               savepoint=None,
               offset_evals=None,
@@ -96,6 +99,7 @@ class KLMonitor():
         self.fkl = []
         self.means = []
         self.covs = []
+        self.times = []
         if batch_size is not None: self.batch_size = batch_size
         if checkpoint is not None: self.checkpoint = checkpoint
         if savepoint is not None: self.savepoint = savepoint
@@ -105,14 +109,14 @@ class KLMonitor():
         if plot_loss is not None: self.plot_loss = plot_loss
         if savepath is not None: self.savepath = savepath
         print('offset evals reset to : ', self.offset_evals)
-        
+
     def __call__(self, i, params, lp, key, nevals=1):
         """
         Main function to monitor reverse (and forward) KL divergence over iterations.
         If savepath is not None, it also saves and plots losses at savepoints.
-        
+
         Inputs:
-        
+
         i: (int) iteration number
         params: (tuple; (mean, cov)) Current estimate of mean and covariance matrix
         savepoint : (int) Number of iterations after which to save progress
@@ -129,6 +133,13 @@ class KLMonitor():
         key, key_sample = random.split(key)
         np.random.seed(key_sample[0])
 
+        if i == 0:
+            self.start_time = time.time()
+            curr_time = 0.
+        else:
+            curr_time = time.time() - self.start_time
+        self.times.append(curr_time)
+
         try:
             qsamples = np.random.multivariate_normal(mean=mu, cov=cov, size=self.batch_size)
             #q = MultivariateNormal(loc=mu, covariance_matrix=cov)
@@ -138,7 +149,7 @@ class KLMonitor():
                 self.means.append(mu)
                 self.covs.append(cov)
                 self.iparams.append(i)
-                
+
             if self.ref_samples is not None:
                 idx = np.random.permutation(self.ref_samples.shape[0])[:self.batch_size]
                 psamples = self.ref_samples[idx]
@@ -147,7 +158,7 @@ class KLMonitor():
             print(f"Exception occured in monitor : {e}.\nAppending NaN")
             self.rkl.append(np.NaN)
             self.fkl.append(np.NaN)
-            
+
         self.nevals.append(self.offset_evals + nevals)
         self.offset_evals = self.nevals[-1]
 
@@ -155,7 +166,7 @@ class KLMonitor():
         if (self.savepath is not None) & (i%self.savepoint == 0):
 
             print("Savepoint: saving current fit, loss and diagnostic plots")
-            
+
             os.makedirs(self.savepath, exist_ok=True)
             np.save(f"{self.savepath}/mean_fit", mu)
             np.save(f"{self.savepath}/cov_fit", cov)
@@ -163,29 +174,30 @@ class KLMonitor():
             np.save(f"{self.savepath}/covs", self.covs)
             np.save(f"{self.savepath}/iparams", self.iparams)
             np.save(f"{self.savepath}/nevals", self.nevals)
+            np.save(f"{self.savepath}/times", self.times)
             np.save(f"{self.savepath}/rkl", self.rkl)
             if self.ref_samples is not None:
                 np.save(f"{self.savepath}/fkl", self.fkl)
                 try:
                     if self.plot_loss: plotting.plot_loss(self.nevals, self.fkl, self.savepath, fname='fkl', logit=True)
                 except Exception as e: print(e)
-                
+
             if self.plot_loss:
                 try: plotting.plot_loss(self.nevals, self.rkl, self.savepath, fname='rkl', logit=True)
                 except Exception as e: print(e)
-                
+
             if self.plot_samples:
                 try:
                     qsamples = np.random.multivariate_normal(mean=mu, cov=cov, size=1000)
                     plotting.corner(qsamples[:500],
                                     savepath=f"{self.savepath}/",
-                                    savename=f"corner{i}", maxdims=5) 
+                                    savename=f"corner{i}", maxdims=5)
 
                     plotting.compare_hist(qsamples, ref_samples=self.ref_samples[:1000],
                                     savepath=f"{self.savepath}/",
-                                    savename=f"hist{i}") 
+                                    savename=f"hist{i}")
                 except Exception as e:
                     print(f"Exception occured in plotting samples in monitor : {e}.\nSkip")
-            
+
         return key
-    
+
