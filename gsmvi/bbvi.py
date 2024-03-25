@@ -182,7 +182,7 @@ class Scorenorm(BBVI):
         q_lp = lambda x: jnp.sum(q.log_prob(x))
         q_lp_g = jit(grad(q_lp, argnums=0))
         #
-        samples = jax.lax.stop_gradient(q.sample(key, (batch_size,)))
+        samples = q.sample(key, (batch_size,))
         true_score = self.lp_g(samples)
         var_score = q_lp_g(samples)
         #scorediff = scale_tril.T.dot(true_score - var_score)
@@ -239,7 +239,7 @@ class Fishernorm(BBVI):
         q_lp = lambda x: jnp.sum(q.log_prob(x))
         q_lp_g = jit(grad(q_lp, argnums=0))
         #
-        samples = jax.lax.stop_gradient(q.sample(key, (batch_size,)))
+        samples = q.sample(key, (batch_size,))
         true_score = self.lp_g(samples)
         var_score = q_lp_g(samples)
         scorediff = true_score - var_score
