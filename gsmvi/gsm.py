@@ -4,7 +4,6 @@ from jax import jit, random
 #from numpyro.distributions import MultivariateNormal  ##Needed if sampling from numpyro dist below
 import numpy as np              
 
-@jit
 def _gsm_update_single(sample, v, mu0, S0):
     '''returns GSM update to mean and covariance matrix for a single sample
     '''
@@ -28,7 +27,6 @@ def _gsm_update_single(sample, v, mu0, S0):
     return mu_update, S_update
 
 
-@jit
 def gsm_update(samples, vs, mu0, S0):
     """
     Returns updated mean and covariance matrix with GSM updates.
@@ -44,7 +42,6 @@ def gsm_update(samples, vs, mu0, S0):
       mu : Array of shape D, new estimate of the mean
       S : Array of shape DxD, new estimate of the covariance matrix
     """
-        
     assert len(samples.shape) == 2
     assert len(vs.shape) == 2
 
@@ -63,7 +60,7 @@ class GSM:
     """
     Wrapper class for using GSM updates to fit a distribution
     """
-    def __init__(self, D, lp, lp_g):
+    def __init__(self, D, lp, lp_g, jit_compile=True):
         """
         Inputs:
           D: (int) Dimensionality (number) of parameters
@@ -74,6 +71,9 @@ class GSM:
         self.D = D
         self.lp = lp
         self.lp_g = lp_g
+        self.jit_compile = jit_compile
+        if not jit_compile:
+            print("Not using jit compilation. This may take longer than it needs to.")
 
         
     def fit(self, key, mean=None, cov=None, batch_size=2, niter=5000, nprint=10, verbose=True, check_goodness=True, monitor=None, retries=10):
@@ -104,6 +104,9 @@ class GSM:
 
         nevals = 1 
             
+        #if self.jit_compile:
+        #    gsm_update = jit(gsm_update)
+            
         for i in range(niter + 1):
             if (i%(niter//nprint) == 0) and verbose : 
                 print(f'Iteration {i} of {niter}')
@@ -123,7 +126,12 @@ class GSM:
                     # samples = MultivariateNormal(loc=mean, covariance_matrix=cov).sample(key, (batch_size,))
                     vs = self.lp_g(samples)
                     nevals += batch_size
-                    mean_new, cov_new = gsm_update(samples, vs, mean, cov)
+                    #mean_new, cov_new = gsm_update(samples, vs, mean, cov)
+                    if self.jit_compile:
+                        mean_new, cov_new = jit(gsm_update)(samples, vs, mean, cov)
+                    else:
+                        mean_new, cov_new = gsm_update(samples, vs, mean, cov)
+            
                     break
                 except Exception as e:
                     if j < retries :

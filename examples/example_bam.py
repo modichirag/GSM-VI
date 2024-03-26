@@ -5,7 +5,10 @@ import os
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"]="false"
 os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"]="platform"
-os.environ['CUDA_VISIBLE_DEVICES'] = ''   # To enable CPU backend
+#os.environ['CUDA_VISIBLE_DEVICES'] = ''   # To enable CPU backend
+
+from jax.lib import xla_bridge
+print("Device : ", xla_bridge.get_backend().platform)
 
 # enable 16 bit precision for jax
 from jax import config
@@ -55,7 +58,7 @@ if __name__=="__main__":
     regf = regularizer.custom(func)
 
 
-    lsgsm = LS_GSM(D=D, lp=lp, lp_g=lp_g)
+    lsgsm = LS_GSM(D=D, lp=lp, lp_g=lp_g, use_lowrank=True, jit_compile=False)
     key = random.PRNGKey(99)
     monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, savepoint=5000,\
                         savepath='./tmp/', plot_samples=False)
@@ -71,3 +74,6 @@ if __name__=="__main__":
     print()
     print("Check cov fit")
     print(np.allclose(cov, cov_fit))
+    print(cov)
+    print()
+    print(cov_fit)

@@ -44,11 +44,11 @@ if __name__=="__main__":
     model, mean, cov, lp, lp_g = setup_model(D=D)
     ref_samples = model.sample(random.PRNGKey(99), (1000,))
 
-    niter = 5000
+    niter = 500
     lr = 5e-3
     batch_size = 16
 
-    alg = ADVI(D=D, lp=lp)
+    alg = ADVI(D=D, lp=lp, jit_compile=True)
     key = random.PRNGKey(99)
     opt = optax.adam(learning_rate=lr)
     monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, savepoint=5000,\

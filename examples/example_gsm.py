@@ -44,9 +44,9 @@ if __name__=="__main__":
     model, mean, cov, lp, lp_g = setup_model(D=D)
     ref_samples = model.sample(random.PRNGKey(99), (1000,))
 
-    niter = 5000
+    niter = 500
     batch_size = 2
-    gsm = GSM(D=D, lp=lp, lp_g=lp_g)
+    gsm = GSM(D=D, lp=lp, lp_g=lp_g, jit_compile=True)
     key = random.PRNGKey(99)
     monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, savepoint=5000,\
                         savepath='./tmp/', plot_samples=True)

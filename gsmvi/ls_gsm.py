@@ -18,11 +18,11 @@ def compute_Q(U_B):
     return jax.pure_callback(compute_Q_host, result_shape, U_B)
 
 
-@jit
+#@jit
 def get_sqrt(M):
     if xla_bridge.get_backend().platform == 'gpu':
         result_shape = jax.ShapeDtypeStruct(M.shape, M.dtype)
-        M_root = jax.pure_callback(sqrtm_sp, result_shape, M)
+        M_root = jax.pure_callback(lambda x:sqrtm_sp(x).astype(M.dtype), result_shape, M) # sqrt can be complex sometimes, we only want real part
     elif xla_bridge.get_backend().platform == 'cpu':
         M_root = sqrtm_jsp(M)
     else:
@@ -33,7 +33,6 @@ def get_sqrt(M):
         
 
 
-@jit
 def ls_gsm_update(samples, vs, mu0, S0, reg):
     """
     Returns updated mean and covariance matrix with GSM updates.
@@ -74,7 +73,7 @@ def ls_gsm_update(samples, vs, mu0, S0, reg):
 
     return mu, S
 
-@jit
+
 def ls_gsm_lowrank_update(samples, vs, mu0, S0, reg):
     """
     Returns updated mean and covariance matrix with GSM updates.
@@ -125,7 +124,7 @@ class LS_GSM:
     """
     Wrapper class for using GSM updates to fit a distribution
     """
-    def __init__(self, D, lp, lp_g, use_lowrank=False):
+    def __init__(self, D, lp, lp_g, use_lowrank=False, jit_compile=True):
         """
         Inputs:
           D: (int) Dimensionality (number) of parameters
@@ -139,6 +138,9 @@ class LS_GSM:
         self.use_lowrank = use_lowrank
         if use_lowrank:
             print("Using lowrank update")
+        self.jit_compile = jit_compile
+        if not jit_compile:
+            print("Not using jit compilation. This may take longer than it needs to.")
 
 
     def fit(self, key, regf, mean=None, cov=None, batch_size=2, niter=5000, nprint=10, verbose=True, check_goodness=True, monitor=None, retries=10, jitter=1e-6):
@@ -171,6 +173,13 @@ class LS_GSM:
 
         nevals = 1
 
+        if self.use_lowrank:
+            update_function = ls_gsm_lowrank_update
+        else:
+            update_function = ls_gsm_update
+        if self.jit_compile:
+            update_function = jit(update_function)
+                
         if nprint > niter: nprint = niter
         for i in range(niter + 1):
             if (i%(niter//nprint) == 0) and verbose :
@@ -192,10 +201,7 @@ class LS_GSM:
                     vs = self.lp_g(samples)
                     nevals += batch_size
                     reg = regf(i)
-                    if self.use_lowrank:
-                        mean_new, cov_new = ls_gsm_lowrank_update(samples, vs, mean, cov, reg)
-                    else:
-                        mean_new, cov_new = ls_gsm_update(samples, vs, mean, cov, reg)
+                    mean_new, cov_new = update_function(samples, vs, mean, cov, reg)
                     cov_new += np.eye(self.D) * jitter # jitter covariance matrix
                     cov_new = (cov_new + cov_new.T)/2.
                     break

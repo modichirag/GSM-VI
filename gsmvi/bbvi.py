@@ -6,7 +6,7 @@ from numpyro.distributions import MultivariateNormal
 import optax
 
 class BBVI():
-    def __init__(self, D, lp, lp_g=None):
+    def __init__(self, D, lp, lp_g=None, jit_compile=True):
         """
         Inputs:
           D: (int) Dimensionality (number) of parameters.
@@ -17,6 +17,9 @@ class BBVI():
         self.lp = lp
         self.lp_g = lp_g
         self.idx_tril = jnp.stack(jnp.tril_indices(D)).T
+        self.jit_compile = jit_compile
+        if not jit_compile:
+            print("Not using jit compilation. This may take longer than it needs to.")
 
     def minimize_loss(self, loss_function, key, opt, mean=None, cov=None, batch_size=8, niter=1000, nprint=10, monitor=None, retries=10):
         """
@@ -37,14 +40,18 @@ class BBVI():
           cov : Array of shape DxD, fit of the covariance matrix
         """
 
-        lossf = jit(loss_function, static_argnums=(2))
+        if self.jit_compile:    # I don't remember why we need to jit here. For monitor?
+            lossf = jit(loss_function, static_argnums=(2))
+        else:
+            lossf = loss_function
 
-        @jit
         def opt_step(params, opt_state, key):
             loss, grads = jax.value_and_grad(lossf, argnums=0)(params, key, batch_size=batch_size)
             updates, opt_state = opt.update(grads, opt_state, params)
             params = optax.apply_updates(params, updates)
             return params, opt_state, loss
+
+        if self.jit_compile: opt_step = jit(opt_step)
 
         if mean is None:
             mean = jnp.zeros(self.D)
@@ -109,14 +116,14 @@ class ADVI(BBVI):
     by maximizing ELBO.
     """
 
-    def __init__(self, D, lp):
+    def __init__(self, D, lp, jit_compile=True):
         """
         Inputs:
           D: (int) Dimensionality (number) of parameters.
           lp : Function to evaluate target log-probability distribution
                whose gradient can be evaluated with jax.grad(lp)
         """
-        super().__init__(D=D, lp=lp)
+        super().__init__(D=D, lp=lp, jit_compile=jit_compile)
 
     def loss_function(self, params, key, batch_size):
         """
@@ -162,14 +169,14 @@ class Scorenorm(BBVI):
     by minimizing the scorenorm.
     """
 
-    def __init__(self, D, lp, lp_g):
+    def __init__(self, D, lp, lp_g, jit_compile=True):
         """
         Inputs:
           D: (int) Dimensionality (number) of parameters.
           lp : Function to evaluate target log-probability distribution
                whose gradient can be evaluated with jax.grad(lp)
         """
-        super().__init__(D=D, lp=lp, lp_g=lp_g)
+        super().__init__(D=D, lp=lp, lp_g=lp_g, jit_compile=jit_compile)
 
     def loss_function(self, params, key, batch_size):
         """
@@ -180,7 +187,8 @@ class Scorenorm(BBVI):
         scale_tril = scale_tril.at[self.idx_tril[:, 0], self.idx_tril[:, 1]].set(scales)
         q = MultivariateNormal(loc=loc, scale_tril=scale_tril)
         q_lp = lambda x: jnp.sum(q.log_prob(x))
-        q_lp_g = jit(grad(q_lp, argnums=0))
+        #q_lp_g = jit(grad(q_lp, argnums=0))
+        q_lp_g = grad(q_lp, argnums=0)
         #
         samples = q.sample(key, (batch_size,))
         true_score = self.lp_g(samples)
@@ -213,20 +221,22 @@ class Scorenorm(BBVI):
 
         return self.minimize_loss(self.loss_function, key, opt, mean=mean, cov=cov, batch_size=batch_size, niter=niter, nprint=nprint, monitor=monitor, retries=retries)
 
+    
+
 class Fishernorm(BBVI):
     """
     Class for fitting a multivariate Gaussian distribution with dense covariance matrix
     by minimizing the scorenorm.
     """
 
-    def __init__(self, D, lp, lp_g):
+    def __init__(self, D, lp, lp_g, jit_compile=True):
         """
         Inputs:
           D: (int) Dimensionality (number) of parameters.
           lp : Function to evaluate target log-probability distribution
                whose gradient can be evaluated with jax.grad(lp)
         """
-        super().__init__(D=D, lp=lp, lp_g=lp_g)
+        super().__init__(D=D, lp=lp, lp_g=lp_g, jit_compile=jit_compile)
 
     def loss_function(self, params, key, batch_size):
         """
@@ -237,7 +247,8 @@ class Fishernorm(BBVI):
         scale_tril = scale_tril.at[self.idx_tril[:, 0], self.idx_tril[:, 1]].set(scales)
         q = MultivariateNormal(loc=loc, scale_tril=scale_tril)
         q_lp = lambda x: jnp.sum(q.log_prob(x))
-        q_lp_g = jit(grad(q_lp, argnums=0))
+        #q_lp_g = jit(grad(q_lp, argnums=0))
+        q_lp_g = grad(q_lp, argnums=0)
         #
         samples = q.sample(key, (batch_size,))
         true_score = self.lp_g(samples)
