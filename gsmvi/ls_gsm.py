@@ -1,11 +1,12 @@
 import jax
 import jax.numpy as jnp
 from jax import jit, random
-from jax.scipy.linalg import sqrtm
-#from scipy.linalg import sqrtm
+from jax.scipy.linalg import sqrtm as sqrtm_jsp
+from scipy.linalg import sqrtm as sqrtm_sp
 #from numpyro.distributions import MultivariateNormal  ##Needed if sampling from numpyro dist below
 import numpy as np
 import scipy.sparse as spys
+from jax.lib import xla_bridge
 
 def compute_Q_host(U_B):
     U, B = U_B
@@ -15,6 +16,21 @@ def compute_Q_host(U_B):
 def compute_Q(U_B):
     result_shape = jax.ShapeDtypeStruct((U_B[0].shape[0], U_B[1]), U_B[0].dtype)
     return jax.pure_callback(compute_Q_host, result_shape, U_B)
+
+
+@jit
+def get_sqrt(M):
+    if xla_bridge.get_backend().platform == 'gpu':
+        result_shape = jax.ShapeDtypeStruct(M.shape, M.dtype)
+        M_root = jax.pure_callback(sqrtm_sp, result_shape, M)
+    elif xla_bridge.get_backend().platform == 'cpu':
+        M_root = sqrtm_jsp(M)
+    else:
+        print("Backend not recongnized in get_sqrt function. Should be either gpu or cpu")
+        raise
+    return M_root.real
+        
+        
 
 
 @jit
@@ -52,7 +68,8 @@ def ls_gsm_update(samples, vs, mu0, S0, reg):
 
     mat = I + 4 * jnp.matmul(U, V)
     # S = 2 * jnp.matmul(V, jnp.linalg.inv(I + sqrtm(mat).real))
-    S = 2 * jnp.linalg.solve(I + sqrtm(mat).real.T, V.T)
+    S = 2 * jnp.linalg.solve(I + get_sqrt(mat).T, V.T)
+        
     mu = 1/(1+reg) * mu0 + reg/(1+reg) * (jnp.matmul(S, gbar) + xbar)
 
     return mu, S
@@ -94,7 +111,7 @@ def ls_gsm_lowrank_update(samples, vs, mu0, S0, reg):
     I = jnp.identity(B)
     VT = V.T
     A = VT.dot(Q)
-    BB = 0.5*I + jnp.real(sqrtm(A.T.dot(Q) + 0.25*I))
+    BB = 0.5*I + jnp.real(get_sqrt(A.T.dot(Q) + 0.25*I))
     BB = BB.dot(BB)
     CC = jnp.linalg.solve(BB, A.T)
     S = VT - A @ CC
