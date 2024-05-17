@@ -31,7 +31,7 @@ class FlowVI():
         return negelbo
 
 
-    def fit(self, key, model, opt, batch_size=8, niter=1000, nprint=10, retries=10):
+    def fit(self, key, model, opt, batch_size=8, niter=1000, nprint=10, retries=10, monitor=None):
         """
         Main function to fit a multivariate Gaussian distribution to the target
 
@@ -67,6 +67,11 @@ class FlowVI():
             if(i%(niter//nprint)==0):
                 print(f'Iteration {i} of {niter}')
 
+            if monitor is not None:
+                if (i%monitor.checkpoint) == 0:
+                    monitor(i, model, self.lp, key, nevals=nevals)
+                    nevals = 0
+                    
             j = 0
             while True:         # Sometimes run crashes due to a bad sample. Avoid that by re-trying.
                 try:
@@ -82,6 +87,8 @@ class FlowVI():
                     else : raise e
             losses.append(loss)
 
+        if monitor is not None:
+            monitor(i, model, self.lp, key, nevals=nevals)
         return model, losses
 
 
