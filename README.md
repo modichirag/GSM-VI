@@ -7,7 +7,7 @@ variational inference algorithms:
 
 We describe each of these in the following two sections.
 
-## Variational Inference (VI) with Gaussian Score Matching (GSM)
+## Variational Inference (VI) with Gaussian Score Matching (GSM) (NeurIPS 2023)
 
 GSM-VI fits a multivariate Gasussian distribution with dense covaraince matrix to the target distribution
 by score matching. It only requires access to the score function i.e. the gradient of the target log-probability
@@ -84,12 +84,26 @@ cd examples
 python3 example_initializers.py   # jax version, requires jax, numpyro, optax and scipy
 ```
 
-## Batch and match: black-box variational inference with a score-based divergence
+## Batch and match: black-box variational inference with a score-based divergence (ICML 2024)
 
 [Batch and match (BaM)](https://arxiv.org/pdf/2402.14758) also fits a full covariance multivariate Gaussian and recovers (a version of) GSM as a special case.
 In the BaM algorithm, a score-based divergence is minimized.
 The code is set up similarly to the GSM code. Currently, it is not yet available
 on `PyPI`.
-The example usage code is in `examples/example_bam.py'.
 
+To install, run
+```
+pip install -e .
+```
+
+
+The example usage code is in `examples/example_bam.py':
+
+```
+cd examples
+python3 example_bam.py        # jax version, requires jax and numpyro
+```
+
+Note that this installation approach also includes the GSM and ADVI code
+examples above.
 
