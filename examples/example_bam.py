@@ -59,11 +59,9 @@ if __name__=="__main__":
     regf = regularizer.custom(func)
 
 
-    bam = BaM(D=D, lp=lp, lp_g=lp_g, use_lowrank=True, jit_compile=False)
+    bam = BaM(D=D, lp=lp, lp_g=lp_g, use_lowrank=True, jit_compile=True)
     key = random.PRNGKey(99)
-    monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, savepoint=5000,\
-                        savepath='./tmp/', plot_samples=False)
-    mean_fit, cov_fit = bam.fit(key, regf=regf, niter=niter, batch_size=batch_size, monitor=monitor)
+    mean_fit, cov_fit = bam.fit(key, regf=regf, niter=niter, batch_size=batch_size)
 
     print()
     print("True mean : ", mean)
