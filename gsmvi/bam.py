@@ -193,7 +193,7 @@ class BaM:
                     samples = np.random.multivariate_normal(mean=mean, cov=cov, size=batch_size)
                     vs = self.lp_g(samples)
                     nevals += batch_size
-					reg = regf(i)
+                    reg = regf(i)
                     mean_new, cov_new = update_function(samples, vs, mean, cov, reg)
                     cov_new += np.eye(self.D) * jitter # jitter covariance matrix
                     cov_new = (cov_new + cov_new.T)/2.
