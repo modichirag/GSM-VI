@@ -122,3 +122,58 @@ def fit_lr_gaussian(data, num_of_latents,
         print(f'{counter} iterations to reach convergence\n')
         
     return mu, llambda, psi
+
+
+
+
+
+
+
+
+@jit
+def em_exact(llambda, psi, mu, cov):
+    D, r = llambda.shape#[0], llambda.shape[1]
+    psi_inv = jnp.diag(jnp.diagonal(psi)**-1)
+    alpha = llambda.T@psi_inv    
+    beta = jnp.linalg.pinv(np.identity(r) + alpha@llambda)
+
+    gamma = cov@(alpha.T@beta.T)
+    llambda_update = gamma @ jnp.linalg.pinv(beta + beta@alpha@gamma) 
+    
+    A = jnp.eye(D) - llambda_update @beta @ llambda.T @psi_inv
+    M = A@cov@A.T + llambda_update @beta @llambda_update.T
+    psi_update = jnp.diag(jnp.diagonal(M))
+    return llambda_update, psi_update
+
+
+
+
+#using mle for training
+def project_lr_gaussian(mu, cov, llambda, psi, num_of_itr=100, 
+                        tolerance=0.001, diagnosis=False, 
+                        data=None):
+        
+    #cap the maximum number of iterations
+    #initialize
+    lower_bound_old=None
+    lower_bound=None
+    counter=0
+    while counter < num_of_itr:
+        
+        llambda, psi = em_exact(llambda, psi, mu, cov)
+            
+        #use lower bound to determine if converged if data is given
+        if data is not None:
+            lower_bound_old=lower_bound
+            lower_bound=get_lower_bound(data, mu, llambda, psi)            
+            if lower_bound_old and np.abs(lower_bound/lower_bound_old-1)<tolerance:
+                if diagnosis:
+                    print(f'{counter} iterations to reach convergence\n')
+                return llambda, psi
+            
+        counter+=1
+    
+    if diagnosis:
+        print(f'{counter} iterations to reach convergence\n')
+        
+    return llambda, psi

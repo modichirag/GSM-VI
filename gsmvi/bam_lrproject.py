@@ -7,7 +7,7 @@ from scipy.linalg import sqrtm as sqrtm_sp
 import numpy as np
 import scipy.sparse as spys
 from jax.lib import xla_bridge
-from em_lr_projection import fit_lr_gaussian
+from em_lr_projection import fit_lr_gaussian, project_lr_gaussian
 
 from ls_gsm import ls_gsm_update, ls_gsm_lowrank_update
 
@@ -119,8 +119,9 @@ class BAM_lrproject:
                 psi = jnp.diag(jnp.diag(cov))
             if llambda is None: 
                 llambda = np.linalg.eigh(cov)[1][:, :rank]
-            _, llambda, psi = fit_lr_gaussian(x, rank, verbose=False,
-                                                 mu=mean, llambda=llambda, psi=psi)
+            llambda, psi =  project_lr_gaussian(mean, cov, llambda, psi, data=x)
+            #_, llambda, psi = fit_lr_gaussian(x, rank, verbose=False,
+            #                                     mu=mean, llambda=llambda, psi=psi)
             cov = llambda@llambda.T + psi
         
 
