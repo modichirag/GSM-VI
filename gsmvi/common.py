@@ -6,7 +6,7 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float, PRNGKeyArray
 
 #from flowMC.nfmodel.base import Bijection, Distribution
-from base import Bijection, Distribution
+from gsmvi.base import Bijection, Distribution
 
 
 class MLP(eqx.Module):

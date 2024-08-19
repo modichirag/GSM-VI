@@ -10,8 +10,8 @@ from jaxtyping import Array, Float, PRNGKeyArray
 
 #from flowMC.nfmodel.base import Distribution, NFModel
 #from flowMC.nfmodel.common import MLP, Gaussian, MaskedCouplingLayer, MLPAffine
-from base import Distribution, NFModel
-from common import MLP, Gaussian, MaskedCouplingLayer, MLPAffine
+from gsmvi.base import Distribution, NFModel
+from gsmvi.common import MLP, Gaussian, MaskedCouplingLayer, MLPAffine
 
 
 class AffineCoupling(eqx.Module):
