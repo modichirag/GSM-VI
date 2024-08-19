@@ -14,6 +14,29 @@ from functools import partial
 
 
 @jit
+def get_diag(U, V):
+    """Return diagonal of U@V.T"""
+    return jax.vmap(jnp.dot, in_axes=[0, 0])(U, V)
+
+
+@jit
+def low_rank_kl(psi1, llambda1, psi0, R, VTQM, QTV):
+    K = llambda1.shape[1]
+    ltpsinv = llambda1.T*(1/psi1)
+    m = jnp.identity(K) + ltpsinv@llambda1
+    minv = jnp.linalg.inv(m)
+    mltpsinv = minv@ltpsinv
+    t0 = (psi0 + get_diag(R, R) - get_diag(VTQM, QTV.T))/psi1
+    t1 = psi0*get_diag(ltpsinv.T, mltpsinv.T)
+    t2 = get_diag(R@(R.T@ltpsinv.T), mltpsinv.T)
+    t3 = get_diag(VTQM@(QTV@ltpsinv.T), mltpsinv.T)
+    diag = (t0 - t1 - t2 + t3)
+    trace_term = diag.sum()
+    det_term = jnp.log(jnp.linalg.det(m)*jnp.prod(psi1))
+    kl = trace_term + det_term
+    return kl
+
+@jit
 def det_cov_lr(psi, llambda):
     m = (llambda.T*(1/psi))@llambda
     m = np.identity(m.shape[0]) + m
@@ -38,11 +61,6 @@ def logp_lr(y, mean, psi, llambda):
     return logp
 
 
-@jit
-def get_diag(U, V):
-    """Return diagonal of U@V.T"""
-    return jax.vmap(jnp.dot, in_axes=[0, 0])(U, V)
-
 
 #@jit
 def _update_psi_llambda(psi, llambda, R, VTQM, QTV, psi0, first_term_1):
@@ -51,11 +69,11 @@ def _update_psi_llambda(psi, llambda, R, VTQM, QTV, psi0, first_term_1):
     D, K = llambda.shape
     Id_K = jnp.identity(K)
     psi_inv = psi**-1
-    C = jnp.linalg.pinv(Id_K + (llambda.T *psi_inv)@llambda) #KxK  #replace by Solve?
+    C = jnp.linalg.inv(Id_K + (llambda.T *psi_inv)@llambda) #KxK  #replace by Solve?
     J = C@(llambda.T*psi_inv) #KxD
     VJT = (J*psi0).T + R@(R.T@J.T) #DxK
     SJT = VJT - VTQM@(QTV@J.T)   #SigmaJT , DxK
-    llambda_update = SJT @ jnp.linalg.pinv(C + J@SJT)  #replace by Solve?
+    llambda_update = SJT @ jnp.linalg.inv(C + J@SJT)  #replace by Solve?
 
     # now update psi.
     first_term_2 = -2* get_diag(SJT, llambda_update)
@@ -70,16 +88,23 @@ def _update_psi_llambda(psi, llambda, R, VTQM, QTV, psi0, first_term_1):
     return psi_update, llambda_update
 
 
-def update_psi_llambda(psi, llambda, R, VTQM, QTV, niter_em, jit_compile=True):
+def update_psi_llambda(psi, llambda, R, VTQM, QTV, niter_em=20, tolerance=1e-3, jit_compile=True, verbose=False):
 
     first_term_1 = psi + get_diag(R, R) - get_diag(VTQM, QTV.T) #diag of cov for psi
     psi0 = psi.copy()     
     if jit_compile :  _update = jit(_update_psi_llambda)
     else:   _update = _update_psi_llambda
+
     counter = 0
-    
+    current_kl = 0
     for counter in range(niter_em):
         psi, llambda = _update(psi, llambda, R, VTQM, QTV, psi0, first_term_1)
+        #use kl to determine if convergeda
+        old_kl = current_kl
+        current_kl = low_rank_kl(psi, llambda, psi0, R, VTQM, QTV)
+        if old_kl and np.abs(current_kl/old_kl-1)<tolerance:
+            if verbose: print(f'{counter} iterations to reach convergence\n')
+            return psi, llambda
         
     return psi, llambda
 
@@ -100,12 +125,11 @@ def pbam_update(samples, vs, mu0, psi0, llambda0, reg,  niter_em=2):
 
     Q = jnp.concatenate([reg**0.5*GT.T,  ((reg)/(1+reg))**0.5 * gbar.reshape(-1, 1)], axis=1) #Dx(B+1)
     R = jnp.concatenate([llambda0, reg**0.5*XT.T, (reg/(1+reg))**0.5*(mu0-xbar).reshape(-1, 1)], axis=1) #Dx(K+B+1)
-    VTQ = (Q.T*psi0).T + R@(R.T@Q) #Dx(B+1)
     QTV = (Q.T@R)@R.T + (Q.T*psi0) #(B+1)xD
     Id_Q = jnp.identity(QTV.shape[0])
     M = 0.5*Id_Q + get_sqrt(0.25*Id_Q + QTV@Q).real
-    MM = jnp.linalg.pinv(M@M)
-    VTQM = VTQ@MM
+    MM = jnp.linalg.inv(M@M)
+    VTQM = (QTV).T@MM
 
     mu = 1/(1+reg) * mu0 + reg/(1+reg) * (psi0*gbar + R@(R.T@gbar) - VTQM@(QTV@gbar) + xbar)    
     components = [R, VTQM, QTV]
