@@ -88,7 +88,7 @@ def _update_psi_llambda(psi, llambda, R, VTQM, QTV, psi0, first_term_1):
     return psi_update, llambda_update
 
 
-def update_psi_llambda(psi, llambda, R, VTQM, QTV, niter_em=20, tolerance=1e-3, jit_compile=True, verbose=False):
+def update_psi_llambda(psi, llambda, R, VTQM, QTV, niter_em=10, tolerance=1e-3, jit_compile=True, verbose=False):
 
     first_term_1 = psi + get_diag(R, R) - get_diag(VTQM, QTV.T) #diag of cov for psi
     psi0 = psi.copy()     
@@ -111,7 +111,7 @@ def update_psi_llambda(psi, llambda, R, VTQM, QTV, niter_em=20, tolerance=1e-3, 
 
 
 #@jit
-def pbam_update(samples, vs, mu0, psi0, llambda0, reg,  niter_em=2):
+def pbam_update(samples, vs, mu0, psi0, llambda0, reg):
     print('jit pbam update')
     ##############
     assert len(samples.shape) == 2
@@ -128,7 +128,7 @@ def pbam_update(samples, vs, mu0, psi0, llambda0, reg,  niter_em=2):
     QTV = (Q.T@R)@R.T + (Q.T*psi0) #(B+1)xD
     Id_Q = jnp.identity(QTV.shape[0])
     M = 0.5*Id_Q + get_sqrt(0.25*Id_Q + QTV@Q).real
-    MM = jnp.linalg.inv(M@M)
+    MM = jnp.linalg.pinv(M@M)
     VTQM = (QTV).T@MM
 
     mu = 1/(1+reg) * mu0 + reg/(1+reg) * (psi0*gbar + R@(R.T@gbar) - VTQM@(QTV@gbar) + xbar)    
@@ -152,11 +152,13 @@ class PBAM:
         self.D = D
         self.lp = lp
         self.lp_g = lp_g
+        self.nan_update = []
         
 
 
     def fit(self, key, regf, rank, mean=None, psi=None, llambda=None,
             batch_size=2, niter=5000, nprint=10, niter_em=10, jit_compile=True,
+            tolerance=1e-3, print_convergence=False,
             verbose=True, check_goodness=True, monitor=None, retries=10, jitter=1e-6):
         """
         Main function to fit a multivariate Gaussian distribution to the target
@@ -218,8 +220,9 @@ class PBAM:
                     vs = self.lp_g(samples)
                     nevals += batch_size
                     reg = regf(i)
-                    mean, components =  update_function(samples, vs, mean, psi, llambda, reg, niter_em=niter_em) # bam
-                    psi, llambda = project_function(psi, llambda, *components, niter_em) # project
+                    mean_new, components =  update_function(samples, vs, mean, psi, llambda, reg) # bam
+                    psi_new, llambda_new = project_function(psi, llambda, *components, \
+                                                            niter_em=niter_em, tolerance=tolerance, verbose=print_convergence) # project
                     psi +=  jitter # jitter diagonal
                     break
                 except Exception as e:
@@ -229,11 +232,14 @@ class PBAM:
                         print(f"Trying again {j} of {retries}")
                     else : raise e
 
-            # is_good = self._check_goodness(cov_new)
-            # if is_good:
-            #     mean, cov = mean_new, cov_new
-            # else:
-            #     if verbose: print("Bad update for covariance matrix. Revert")
+            is_good = self._check_goodness(mean_new, psi_new, llambda_new)
+            if is_good == -1:
+                print("Max bad updates reached")
+                return mean, psi, llambda
+            elif is_good == 1:
+                mean, psi, llambda = mean_new, psi_new, llambda_new
+            else:
+                if verbose: print("Bad update for covariance matrix. Revert")
                 
             # x = np.random.multivariate_normal(mean, cov, n_project)
             # if psi is None: 
@@ -252,7 +258,22 @@ class PBAM:
             
         return mean, psi, llambda
 
-    
+
+    def _check_goodness(self, mean, psi, cov):
+        is_good = 0
+        j = 0 
+        try:
+            for m in [mean, psi, cov]:
+                if (np.isnan(m)).any():
+                    self.nan_update.append(j)
+                    if len(self.nan_update) > 100:
+                        is_good = -1
+                    return is_good
+            is_good = 1
+            return is_good
+        except:
+            return is_good
+        
 
 class PBAM_fullcov:
     """
