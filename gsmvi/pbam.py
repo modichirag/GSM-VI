@@ -14,6 +14,31 @@ from functools import partial
 
 
 @jit
+def det_cov_lr(psi, llambda):
+    m = (llambda.T*(1/psi))@llambda
+    m = np.identity(m.shape[0]) + m
+    return jnp.linalg.det(m)*jnp.prod(psi)
+
+@jit
+def logp_lr(y, mean, psi, llambda):
+
+    D, K = llambda.shape
+    x = y - mean
+    
+    first_term = jnp.dot(x, x/psi)
+    ltpsinv = llambda.T*(1/psi)
+    m = jnp.identity(K) + ltpsinv@llambda
+    minv = jnp.linalg.inv(m)
+    res = ltpsinv@x
+    second_term = res.T@minv@res
+    
+    logexp = -0.5 * (first_term - second_term)
+    logdet = - 0.5 * jnp.log(jnp.linalg.det(m)*jnp.prod(psi))
+    logp = logexp + logdet - 0.5*D*jnp.log(2*jnp.pi)
+    return logp
+
+
+@jit
 def get_diag(U, V):
     """Return diagonal of U@V.T"""
     return jax.vmap(jnp.dot, in_axes=[0, 0])(U, V)
