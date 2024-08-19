@@ -322,14 +322,16 @@ class Monitor_Flow():
                 psamples = self.ref_samples[idx]
                 fkl = jnp.sum(lp(psamples[:self.batch_size])) - jnp.sum(model.log_prob(psamples[:self.batch_size]))
                 self.fkl.append(fkl/self.batch_size)
+
+            if self.save_scores:
+                scores = jax.grad(lambda x: jnp.sum(model.log_prob(x)))(self.ref_samples[:self.batch_size])
+                self.scores.append(scores)
+            
         except Exception as e:
             print(f"Exception occured in monitor : {e}.\nAppending NaN")
             self.rkl.append(np.NaN)
             self.fkl.append(np.NaN)
-
-        if self.save_scores:
-            scores = jax.grad(lambda x: jnp.sum(model.log_prob(x)))(self.ref_samples[:self.batch_size])
-            self.scores.append(scores)
+            self.scores.append(np.NaN)
         self.nevals.append(self.offset_evals + nevals)
         self.offset_evals = self.nevals[-1]
 
