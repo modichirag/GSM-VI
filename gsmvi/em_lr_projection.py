@@ -125,11 +125,6 @@ def fit_lr_gaussian(data, num_of_latents,
 
 
 
-
-
-
-
-
 @jit
 def em_exact(llambda, psi, mu, cov):
     D, r = llambda.shape#[0], llambda.shape[1]
@@ -144,8 +139,6 @@ def em_exact(llambda, psi, mu, cov):
     M = A@cov@A.T + llambda_update @beta @llambda_update.T
     psi_update = jnp.diag(jnp.diagonal(M))
     return llambda_update, psi_update
-
-
 
 
 #using mle for training
