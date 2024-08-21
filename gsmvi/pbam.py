@@ -7,9 +7,8 @@ from scipy.linalg import sqrtm as sqrtm_sp
 import numpy as np
 import scipy.sparse as spys
 from jax.lib import xla_bridge
-from em_lr_projection import fit_lr_gaussian, project_lr_gaussian
-
-from bam import bam_update, bam_lowrank_update, get_sqrt
+from gsmvi.em_lr_projection import fit_lr_gaussian, project_lr_gaussian
+from gsmvi.bam import bam_update, bam_lowrank_update, get_sqrt
 from functools import partial
 
 
@@ -18,23 +17,6 @@ def get_diag(U, V):
     """Return diagonal of U@V.T"""
     return jax.vmap(jnp.dot, in_axes=[0, 0])(U, V)
 
-
-@jit
-def low_rank_kl(psi1, llambda1, psi0, R, VTQM, QTV):
-    K = llambda1.shape[1]
-    ltpsinv = llambda1.T*(1/psi1)
-    m = jnp.identity(K) + ltpsinv@llambda1
-    minv = jnp.linalg.inv(m)
-    mltpsinv = minv@ltpsinv
-    t0 = (psi0 + get_diag(R, R) - get_diag(VTQM, QTV.T))/psi1
-    t1 = psi0*get_diag(ltpsinv.T, mltpsinv.T)
-    t2 = get_diag(R@(R.T@ltpsinv.T), mltpsinv.T)
-    t3 = get_diag(VTQM@(QTV@ltpsinv.T), mltpsinv.T)
-    diag = (t0 - t1 - t2 + t3)
-    trace_term = diag.sum()
-    det_term = jnp.log(jnp.linalg.det(m)*jnp.prod(psi1))
-    kl = trace_term + det_term
-    return kl
 
 @jit
 def det_cov_lr(psi, llambda):
@@ -51,29 +33,47 @@ def logp_lr(y, mean, psi, llambda):
     first_term = jnp.dot(x, x/psi)
     ltpsinv = llambda.T*(1/psi)
     m = jnp.identity(K) + ltpsinv@llambda
-    minv = jnp.linalg.inv(m)
+    minv = jnp.linalg.pinv(m)
     res = ltpsinv@x
     second_term = res.T@minv@res
     
     logexp = -0.5 * (first_term - second_term)
-    logdet = - 0.5 * jnp.log(jnp.linalg.det(m)*jnp.prod(psi))
+    logdet = -0.5 * jnp.log(jnp.linalg.det(m)*jnp.prod(psi))
     logp = logexp + logdet - 0.5*D*jnp.log(2*jnp.pi)
     return logp
 
 
+@jit
+def low_rank_kl(psi1, llambda1, psi0, R, VTQM, QTV):
+    K = llambda1.shape[1]
+    ltpsinv = llambda1.T*(1/psi1)
+    m = jnp.identity(K) + ltpsinv@llambda1
+    minv = jnp.linalg.pinv(m)
+    mltpsinv = minv@ltpsinv
+    t0 = (psi0 + get_diag(R, R) - get_diag(VTQM, QTV.T))/psi1
+    t1 = psi0*get_diag(ltpsinv.T, mltpsinv.T)
+    t2 = get_diag(R@(R.T@ltpsinv.T), mltpsinv.T)
+    t3 = get_diag(VTQM@(QTV@ltpsinv.T), mltpsinv.T)
+    diag = (t0 - t1 - t2 + t3)
+    trace_term = diag.sum()
+    det_term = jnp.log(jnp.linalg.det(m)*jnp.prod(psi1))
+    kl = trace_term + det_term
+    return kl
 
-#@jit
-def _update_psi_llambda(psi, llambda, R, VTQM, QTV, psi0, first_term_1):
+
+
+@jit
+def _update_psi_llambda(psi, llambda, R, VTQM, QTV, psi0, first_term_1, jitter=1e-6):
     print('jit psi/llambda update')
     # first update llambda
     D, K = llambda.shape
     Id_K = jnp.identity(K)
     psi_inv = psi**-1
-    C = jnp.linalg.inv(Id_K + (llambda.T *psi_inv)@llambda) #KxK  #replace by Solve?
+    C = jnp.linalg.pinv(Id_K + (llambda.T *psi_inv)@llambda) #KxK  #replace by Solve?
     J = C@(llambda.T*psi_inv) #KxD
     VJT = (J*psi0).T + R@(R.T@J.T) #DxK
     SJT = VJT - VTQM@(QTV@J.T)   #SigmaJT , DxK
-    llambda_update = SJT @ jnp.linalg.inv(C + J@SJT)  #replace by Solve?
+    llambda_update = SJT @ jnp.linalg.pinv(C + J@SJT)  #replace by Solve?
 
     # now update psi.
     first_term_2 = -2* get_diag(SJT, llambda_update)
@@ -83,30 +83,59 @@ def _update_psi_llambda(psi, llambda, R, VTQM, QTV, psi0, first_term_1):
     first_term_3 = jax.vmap(contractM, in_axes=[0])(llambda_update) 
     first_term = first_term_1 + first_term_2 + first_term_3
     second_term = get_diag(llambda_update @C , llambda_update)
-    psi_update = first_term + second_term
+    psi_update = first_term + second_term + jitter
 
     return psi_update, llambda_update
 
 
-def update_psi_llambda(psi, llambda, R, VTQM, QTV, niter_em=10, tolerance=1e-3, jit_compile=True, verbose=False):
+def update_psi_llambda(psi, llambda, R, VTQM, QTV, niter_em=10, tolerance=0., jit_compile=True, verbose=False, eta=1., min_iter=3):
 
+    assert 1. <= eta < 2
     first_term_1 = psi + get_diag(R, R) - get_diag(VTQM, QTV.T) #diag of cov for psi
     psi0 = psi.copy()     
-    if jit_compile :  _update = jit(_update_psi_llambda)
-    else:   _update = _update_psi_llambda
-
+    #if jit_compile :  _update = jit(_update_psi_llambda)
+    #else:   _update = _update_psi_llambda
+    _update =  _update_psi_llambda
+    
     counter = 0
-    current_kl = 0
+    current_kl = low_rank_kl(psi, llambda, psi0, R, VTQM, QTV)
+    kld = []
+    rkld = []
     for counter in range(niter_em):
-        psi, llambda = _update(psi, llambda, R, VTQM, QTV, psi0, first_term_1)
-        #use kl to determine if convergeda
-        old_kl = current_kl
-        current_kl = low_rank_kl(psi, llambda, psi0, R, VTQM, QTV)
-        if old_kl and np.abs(current_kl/old_kl-1)<tolerance:
-            if verbose: print(f'{counter} iterations to reach convergence\n')
-            return psi, llambda
-        
-    return psi, llambda
+        psi_update, llambda_update = _update(psi, llambda, R, VTQM, QTV, psi0, first_term_1)
+
+        if np.isnan(psi_update).any() or np.isnan(llambda_update).any():
+            return psi, llambda, counter
+
+        else:
+            if tolerance == 0:
+                psi = (1 - eta)*psi + eta*psi_update
+                llambda = (1 - eta)*llambda + eta*llambda_update
+
+            else:
+                #use kl to determine if convergeda
+                old_kl = current_kl
+                current_kl = low_rank_kl(psi_update, llambda_update, psi0, R, VTQM, QTV)
+                #if np.isnan(current_kl) or np.isinf(current_kl):
+                #    print(f'NaN/Inf in KL \n')
+                #    #return psi, llambda, counter
+                #    return psi*np.NaN, llambda*np.NaN, counter
+                
+                dist = ((psi_update - psi)**2).sum()**0.5
+                psi = (1 - eta)*psi + eta*psi_update
+                llambda = (1 - eta)*llambda + eta*llambda_update
+                rkld.append(np.abs(current_kl/old_kl-1))
+                kld.append(current_kl-old_kl)
+                #kld.append(current_kl)
+                if counter > min_iter:
+                    second_der = (kld[-1] + kld[-3] - 2*kld[-2])/kld[-2]
+                    if old_kl and (np.array(rkld[-min_iter:]) < tolerance).all() and second_der < tolerance**0.5:
+                        norm = ((psi_update)**2).sum()**0.5
+                        klds = [f"{i:0.2e}" for i in kld]
+                        if verbose: print(f'{counter} iterations to reach convergence. Second derivative {second_der}\n')
+                        return psi, llambda, counter
+    #print(f'Max EM update iterations reached, {rkld[-min_iter:]}, {second_der}')
+    return psi, llambda, counter
 
 
 
@@ -136,7 +165,40 @@ def pbam_update(samples, vs, mu0, psi0, llambda0, reg):
     return mu, components
 
 
+def monitor_lr(monitor, i, params, lp, key, nevals):
 
+    mean, psi, llambda = params
+    key, key_sample = random.split(key)
+    np.random.seed(key_sample[0])
+
+    try:
+        D, K = llambda.shape
+        batch_size = monitor.batch_size
+        eps = np.random.normal(0, 1, size=(batch_size, D))
+        z = np.random.normal(0, 1, size=(batch_size, K))
+        qsamples = mean + psi**0.5 * eps + (llambda@z.T).T
+
+        func = partial(logp_lr, mean=mean, psi=psi, llambda=llambda)
+        qprob = jax.vmap(func, in_axes=[0])(qsamples)
+        pprob = lp(qsamples)
+        monitor.rkl.append((qprob-pprob).mean())
+
+        if monitor.ref_samples is not None:
+            idx = np.random.permutation(monitor.ref_samples.shape[0])[:monitor.batch_size]
+            psamples = monitor.ref_samples[idx]
+            qprob = jax.vmap(func, in_axes=[0])(psamples)
+            pprob = lp(psamples)
+            monitor.fkl.append((pprob-qprob).mean())
+    except Exception as e:
+        print(f"Exception occured in monitor : {e}.\nAppending NaN")
+        monitor.rkl.append(np.NaN)
+        monitor.fkl.append(np.NaN)
+        
+    monitor.nevals.append(monitor.offset_evals + nevals)
+    monitor.offset_evals = monitor.nevals[-1]
+
+
+    
 class PBAM:
     """
     Wrapper class for using GSM updates to fit a distribution
@@ -158,7 +220,7 @@ class PBAM:
 
     def fit(self, key, regf, rank, mean=None, psi=None, llambda=None,
             batch_size=2, niter=5000, nprint=10, niter_em=10, jit_compile=True,
-            tolerance=1e-3, print_convergence=False,
+            tolerance=0, print_convergence=False, reg_factor=1., eta=1.,
             verbose=True, check_goodness=True, monitor=None, retries=10, jitter=1e-6):
         """
         Main function to fit a multivariate Gaussian distribution to the target
@@ -187,25 +249,27 @@ class PBAM:
             mean = jnp.zeros(self.D)
 
         if llambda is None:
-            llambda = np.random.normal(0, 1, size=(self.D, K))
+            llambda = np.random.normal(0, 1, size=(self.D, K))*0.1
         if psi is None:
             psi = np.random.random(self.D)
 
         nevals = 1
+        nprojects = []
         update_function = pbam_update
         project_function = partial(update_psi_llambda, jit_compile=jit_compile)
         if jit_compile:
             update_function = jit(update_function)
         if (nprint > niter) and verbose: nprint = niter
+
+        # start loop
         for i in range(niter + 1):
             if (i%(niter//nprint) == 0) and verbose :
                 print(f'Iteration {i} of {niter}')
 
             if monitor is not None:
-                pass
-                # if (i%monitor.checkpoint) == 0:
-                #     monitor(i, [mean, cov], self.lp, key, nevals=nevals)
-                #     nevals = 0
+                if (i%monitor.checkpoint) == 0:
+                    monitor_lr(monitor, i, [mean, psi, llambda], self.lp, key, nevals=nevals)
+                    nevals = 0
 
             # Can generate samples from jax distribution (commented below), but using numpy is faster
             j = 0
@@ -219,11 +283,19 @@ class PBAM:
                     samples = mean + psi**0.5 * eps + (llambda@z.T).T
                     vs = self.lp_g(samples)
                     nevals += batch_size
-                    reg = regf(i)
-                    mean_new, components =  update_function(samples, vs, mean, psi, llambda, reg) # bam
-                    psi_new, llambda_new = project_function(psi, llambda, *components, \
-                                                            niter_em=niter_em, tolerance=tolerance, verbose=print_convergence) # project
-                    psi +=  jitter # jitter diagonal
+                    reg = regf(i) / reg_factor
+                    mean_new, components = update_function(samples, vs, mean, psi, llambda, reg) # bam
+                    psi_new, llambda_new, counter = project_function(psi, llambda, *components, \
+                                                            niter_em=niter_em, tolerance=tolerance, eta=eta,
+                                                            verbose=print_convergence) # project
+                    if i == 0: print('compiled')
+                    nprojects.append(counter)
+                    psi_new +=  jitter # jitter diagonal
+                    # or update mean later?
+                    xbar = samples.mean(axis=0)
+                    gbar = vs.mean(axis=0)
+                    mean_new = 1/(1+reg) * mean + reg/(1+reg) * (psi_new*gbar + llambda_new@(llambda_new.T@gbar) + xbar)
+
                     break
                 except Exception as e:
                     if j < retries :
@@ -237,25 +309,19 @@ class PBAM:
                 print("Max bad updates reached")
                 return mean, psi, llambda
             elif is_good == 1:
+                reg_factor = 1.
                 mean, psi, llambda = mean_new, psi_new, llambda_new
             else:
+                #reg_factor /= 2.
+                #if reg_factor < 2**-12:
+                #    print("reg factor is very small")
+                #    return mean, psi, llambda
                 if verbose: print("Bad update for covariance matrix. Revert")
-                
-            # x = np.random.multivariate_normal(mean, cov, n_project)
-            # if psi is None: 
-            #     psi = jnp.diag(jnp.diag(cov))
-            # if llambda is None: 
-            #     llambda = np.linalg.eigh(cov)[1][:, :rank]
-            # llambda, psi =  project_lr_gaussian(mean, cov, llambda, psi, data=x)
-            # #_, llambda, psi = fit_lr_gaussian(x, rank, verbose=False,
-            # #                                     mu=mean, llambda=llambda, psi=psi)
-            # cov = llambda@llambda.T + psi
-        
 
         if monitor is not None:
-            pass
-            #monitor(i, [mean, cov], self.lp, key, nevals=nevals)
-            
+            monitor_lr(monitor, i, [mean, psi, llambda], self.lp, key, nevals=nevals)
+            monitor.nprojects = nprojects
+        print('Total number of projections : ', np.sum(nprojects))
         return mean, psi, llambda
 
 
@@ -279,7 +345,7 @@ class PBAM_fullcov:
     """
     Wrapper class for using GSM updates to fit a distribution
     """
-    def __init__(self, D, lp, lp_g, use_lowrank=False, jit_compile=True):
+    def __init__(self, D, lp, lp_g,  jit_compile=True):
         """
         Inputs:
           D: (int) Dimensionality (number) of parameters
@@ -290,9 +356,6 @@ class PBAM_fullcov:
         self.D = D
         self.lp = lp
         self.lp_g = lp_g
-        self.use_lowrank = use_lowrank
-        if use_lowrank:
-            print("Using lowrank update")
         self.jit_compile = jit_compile
         if not jit_compile:
             print("Not using jit compilation. This may take longer than it needs to.")
@@ -300,8 +363,8 @@ class PBAM_fullcov:
 
 
     def fit(self, key, regf, rank, mean=None, cov=None,
-            batch_size=2, niter=5000, nprint=10, n_project=128,
-            verbose=True, check_goodness=True, monitor=None, retries=10, jitter=1e-6, early_stop=True):
+            batch_size=2, niter=5000, nprint=10, n_project=128, tolerance=0., niter_em=10,
+            verbose=True, check_goodness=True, monitor=None, retries=10, jitter=1e-6):
         """
         Main function to fit a multivariate Gaussian distribution to the target
 
@@ -332,7 +395,7 @@ class PBAM_fullcov:
         llambda, psi = None, None
         nevals = 1
 
-        if self.use_lowrank:
+        if batch_size < self.D:
             update_function = bam_lowrank_update
         else:
             update_function = bam_update
@@ -377,7 +440,7 @@ class PBAM_fullcov:
             else:
                 if verbose: print("Bad update for covariance matrix. Revert")
                 
-            if early_stop: x = np.random.multivariate_normal(mean, cov, n_project)
+            if tolerance!= 0: x = np.random.multivariate_normal(mean, cov, n_project)
             else: x = None
             if psi is None: 
                 psi = jnp.diag(np.random.random(self.D))
@@ -385,7 +448,7 @@ class PBAM_fullcov:
             if llambda is None: 
                 llambda = np.random.normal(0, 1, size=(self.D, rank))
                 #llambda = np.linalg.eigh(cov)[1][:, :rank]
-            llambda, psi =  project_lr_gaussian(mean, cov, llambda, psi, data=x)
+            llambda, psi =  project_lr_gaussian(mean, cov, llambda, psi, data=x, num_of_itr=niter_em, tolerance=tolerance)
             psi += jitter
             #_, llambda, psi = fit_lr_gaussian(x, rank, verbose=False,
             #                                     mu=mean, llambda=llambda, psi=psi)
