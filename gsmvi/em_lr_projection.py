@@ -142,7 +142,7 @@ def em_exact(llambda, psi, mu, cov):
 
 
 #using mle for training
-def project_lr_gaussian(mu, cov, llambda, psi, num_of_itr=100, 
+def project_lr_gaussian(mu, cov, llambda, psi, num_of_itr=10, 
                         tolerance=0.001, diagnosis=False, 
                         data=None):
         

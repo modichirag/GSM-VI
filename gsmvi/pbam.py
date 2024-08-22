@@ -9,38 +9,9 @@ import scipy.sparse as spys
 from jax.lib import xla_bridge
 from gsmvi.em_lr_projection import fit_lr_gaussian, project_lr_gaussian
 from gsmvi.bam import bam_update, bam_lowrank_update, get_sqrt
+from gsmvi.low_rank_gaussian import logp_lr, det_cov_lr, get_diag, monitor_lr
 from functools import partial
-
-
-@jit
-def get_diag(U, V):
-    """Return diagonal of U@V.T"""
-    return jax.vmap(jnp.dot, in_axes=[0, 0])(U, V)
-
-
-@jit
-def det_cov_lr(psi, llambda):
-    m = (llambda.T*(1/psi))@llambda
-    m = np.identity(m.shape[0]) + m
-    return jnp.linalg.det(m)*jnp.prod(psi)
-
-@jit
-def logp_lr(y, mean, psi, llambda):
-
-    D, K = llambda.shape
-    x = y - mean
-    
-    first_term = jnp.dot(x, x/psi)
-    ltpsinv = llambda.T*(1/psi)
-    m = jnp.identity(K) + ltpsinv@llambda
-    minv = jnp.linalg.pinv(m)
-    res = ltpsinv@x
-    second_term = res.T@minv@res
-    
-    logexp = -0.5 * (first_term - second_term)
-    logdet = -0.5 * jnp.log(jnp.linalg.det(m)*jnp.prod(psi))
-    logp = logexp + logdet - 0.5*D*jnp.log(2*jnp.pi)
-    return logp
+from time import time
 
 
 @jit
@@ -165,38 +136,6 @@ def pbam_update(samples, vs, mu0, psi0, llambda0, reg):
     return mu, components
 
 
-def monitor_lr(monitor, i, params, lp, key, nevals):
-
-    mean, psi, llambda = params
-    key, key_sample = random.split(key)
-    np.random.seed(key_sample[0])
-
-    try:
-        D, K = llambda.shape
-        batch_size = monitor.batch_size
-        eps = np.random.normal(0, 1, size=(batch_size, D))
-        z = np.random.normal(0, 1, size=(batch_size, K))
-        qsamples = mean + psi**0.5 * eps + (llambda@z.T).T
-
-        func = partial(logp_lr, mean=mean, psi=psi, llambda=llambda)
-        qprob = jax.vmap(func, in_axes=[0])(qsamples)
-        pprob = lp(qsamples)
-        monitor.rkl.append((qprob-pprob).mean())
-
-        if monitor.ref_samples is not None:
-            idx = np.random.permutation(monitor.ref_samples.shape[0])[:monitor.batch_size]
-            psamples = monitor.ref_samples[idx]
-            qprob = jax.vmap(func, in_axes=[0])(psamples)
-            pprob = lp(psamples)
-            monitor.fkl.append((pprob-qprob).mean())
-    except Exception as e:
-        print(f"Exception occured in monitor : {e}.\nAppending NaN")
-        monitor.rkl.append(np.NaN)
-        monitor.fkl.append(np.NaN)
-        
-    monitor.nevals.append(monitor.offset_evals + nevals)
-    monitor.offset_evals = monitor.nevals[-1]
-
 
     
 class PBAM:
@@ -262,10 +201,12 @@ class PBAM:
         if (nprint > niter) and verbose: nprint = niter
 
         # start loop
+        start = time()
         for i in range(niter + 1):
             if (i%(niter//nprint) == 0) and verbose :
-                print(f'Iteration {i} of {niter}')
-
+                print(f'Iteration {i} of {niter}. Time taken : ', time() - start)
+            if i == 1: start = time() # get rid of compile tim
+            if i == 10: print("time for first 10 iterations : ", time()-start)
             if monitor is not None:
                 if (i%monitor.checkpoint) == 0:
                     monitor_lr(monitor, i, [mean, psi, llambda], self.lp, key, nevals=nevals)
@@ -312,8 +253,8 @@ class PBAM:
                 reg_factor = 1.
                 mean, psi, llambda = mean_new, psi_new, llambda_new
             else:
-                #reg_factor /= 2.
-                #if reg_factor < 2**-12:
+                reg_factor /= 2.
+                #if reg_factor < 2**-15:
                 #    print("reg factor is very small")
                 #    return mean, psi, llambda
                 if verbose: print("Bad update for covariance matrix. Revert")
@@ -341,6 +282,7 @@ class PBAM:
             return is_good
         
 
+        
 class PBAM_fullcov:
     """
     Wrapper class for using GSM updates to fit a distribution

@@ -150,7 +150,7 @@ class BAM:
     """
     Wrapper class for using GSM updates to fit a distribution
     """
-    def __init__(self, D, lp, lp_g, use_lowrank=False, jit_compile=True):
+    def __init__(self, D, lp, lp_g, use_lowrank=True, jit_compile=True):
         """
         Inputs:
           D: (int) Dimensionality (number) of parameters
@@ -161,9 +161,9 @@ class BAM:
         self.D = D
         self.lp = lp
         self.lp_g = lp_g
-        self.use_lowrank = use_lowrank
-        if use_lowrank:
-            print("Using lowrank update")
+        #self.use_lowrank = use_lowrank
+        #if use_lowrank:
+        #    print("Using lowrank update")
         self.jit_compile = jit_compile
         if not jit_compile:
             print("Not using jit compilation. This may take longer than it needs to.")
@@ -199,7 +199,9 @@ class BAM:
 
         nevals = 1
 
-        if self.use_lowrank:
+        
+        if batch_size < self.D:
+            print("use low rank")
             update_function = bam_lowrank_update
         else:
             update_function = bam_update
