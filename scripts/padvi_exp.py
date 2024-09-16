@@ -1,8 +1,7 @@
 import sys, os
 import os
 
-from gsmvi.gsm import GSM
-from gsmvi.pgsm import PGSM
+from gsmvi.bbvi import ADVI_LR
 from gsmvi.monitors import KLMonitor
 
 import matplotlib.pyplot as plt
@@ -27,6 +26,7 @@ parser.add_argument('--eta', type=float, default=1.2, help='regularizer for ngd 
 parser.add_argument('--niter_em', type=int, default=101, help='which regularizer to use')
 parser.add_argument('--nprint', type=int, default=100, help='number of times to print')
 parser.add_argument('--tolerance', type=float, default=1e-4, help='regularizer for ngd and lsgsm')
+parser.add_argument('--lr', type=float, default=1e-2, help='regularizer for ngd and lsgsm')
 #args for monitor
 parser.add_argument('--checkpoint', type=int, default=10, help='number of times to print')
 parser.add_argument('--store_params_iter', type=int, default=50, help='number of times to print')
@@ -52,7 +52,7 @@ basepath = '/mnt/ceph/users/cmodi/pbam/'
 if args.badcond: path = f"{basepath}/Gauss-D{D}-badcond/R{rank}-seed{args.dataseed}/"
 else: path = f"{basepath}/Gauss-D{D}/R{rank}-seed{args.dataseed}/"
 os.makedirs(path, exist_ok=True)
-savepath = f'{path}/pgsm/B{args.batch}{suffix}/'
+savepath = f'{path}/padvi/B{args.batch}-lr{args.lr:0.3f}{suffix}/'
 os.makedirs(savepath, exist_ok=True)
 print(f"Save results in {savepath}")
       
@@ -79,8 +79,10 @@ np.save(f"{path}/mean", mean)
 np.save(f"{path}/cov", cov)
 
 ranklr = rank
+regf = lambda x: args.reg/(1+x)
 key = jax.random.PRNGKey(2)
-alg = PGSM(D, lp_vmap, lp_g_vmap)
+alg = ADVI_LR(D, ranklr, lp_vmap, lp_g_vmap)
+#alg = PBAM2(D, lp_vmap, lp_g_vmap)
 
 monitor = KLMonitor(batch_size=32, ref_samples=ref_samples,
                     checkpoint=args.checkpoint, store_params_iter=args.store_params_iter,
@@ -92,11 +94,11 @@ np.random.seed(args.seed)
 mean = jnp.zeros(D)
 psi = 0.1 + np.random.random(D)*0.01
 llambda = np.random.normal(0, 0.1, size=(D, ranklr)) 
-meanfit, psi, llambda = alg.fit(key, rank=ranklr,
-                                mean=mean, psi=psi, llambda=llambda,
-                                batch_size=args.batch, niter=args.niter, 
-                                tolerance=args.tolerance, eta=args.eta, niter_em=args.niter_em,
-                                nprint=args.nprint, print_convergence=False, monitor=monitor)
+opt = optax.adam(learning_rate=args.lr)
+meanfit, psi, llambda, losses = alg.fit(key, opt,
+                                        mean=mean, psi=psi, llambda=llambda,
+                                        batch_size=args.batch, niter=args.niter, 
+                                        nprint=args.nprint, monitor=monitor)
 
 
 plt.figure(figsize=(7, 3))
@@ -108,13 +110,12 @@ plt.subplot(122)
 plt.plot(monitor.nevals, np.abs(monitor.fkl))
 plt.loglog()
 plt.ylabel('forward kl')
-plt.savefig(f'./tmp/pbam{D}-loss{suffix}.png')
+plt.savefig(f'{savepath}/loss.png')
 plt.close()
 
 np.save(f'{savepath}/means', monitor.means)
 np.save(f'{savepath}/llambdas', monitor.llambdas)
 np.save(f'{savepath}/psis', monitor.psis)
-np.save(f'{savepath}/nprojects', monitor.nprojects)
 
 #
 eps = np.random.normal(0, 1, (2000, D))

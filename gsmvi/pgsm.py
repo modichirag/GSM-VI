@@ -19,9 +19,10 @@ def low_rank_kl(psi1, llambda1, psi0, alpha, beta):
 
     ltpsinv = llambda1.T*(1/psi1)
     m = jnp.identity(K) + ltpsinv@llambda1
-    minv = jnp.linalg.pinv(m)
-    mltpsinv = minv@ltpsinv
-    det_term = jnp.log(jnp.linalg.det(m)*jnp.prod(psi1))
+    #minv = jnp.linalg.pinv(m)
+    #mltpsinv = minv@ltpsinv
+    mltpsinv = jnp.linalg.solve(m, ltpsinv)
+    det_term =  jnp.linalg.slogdet(m).logabsdet + jnp.sum(jnp.log(psi1))
 
     t0 = (psi0 + get_diag(alpha, alpha) - get_diag(beta, beta))/psi1
     t1 = psi0*get_diag(ltpsinv.T, mltpsinv.T)
@@ -35,7 +36,7 @@ def low_rank_kl(psi1, llambda1, psi0, alpha, beta):
 
 
 @jit
-def _update_psi_llambda(psi, llambda, alpha, beta, psi0, first_term_1, jitter=1e-6):
+def _update_psi_llambda(psi, llambda, alpha, beta, psi0, first_term_1, jitter=1e-4):
 
 
     print('jit psi/llambda update')
@@ -44,14 +45,14 @@ def _update_psi_llambda(psi, llambda, alpha, beta, psi0, first_term_1, jitter=1e
     Id_K = jnp.identity(K)
     
     psi_inv = psi**-1
-    C = jnp.linalg.pinv(Id_K + (llambda.T *psi_inv)@llambda) #KxK
+    C = jnp.linalg.inv(Id_K + (llambda.T *psi_inv)@llambda) #KxK
     J = C@(llambda.T*psi_inv) #KxD
     SJT = (psi0*J).T + alpha @ (alpha.T@J.T) - beta@(beta.T@J.T)
-    llambda_update = SJT @ jnp.linalg.pinv(C + J@SJT)
+    #llambda_update = SJT @ jnp.linalg.pinv(C + J@SJT)
+    llambda_update = jnp.linalg.solve((C + J@SJT).T, SJT.T).T 
 
     # psi update here
     first_term_2 = -2* get_diag(SJT, llambda_update) 
-
     Mint = J@SJT
     def contractM(a):
         return a@Mint@a
@@ -60,59 +61,76 @@ def _update_psi_llambda(psi, llambda, alpha, beta, psi0, first_term_1, jitter=1e
     
     lupdateC = llambda_update @C 
     second_term = get_diag(lupdateC, llambda_update) 
-    psi_update = first_term + second_term + jitter
+    psi_update = jnp.maximum(first_term + second_term,  jitter)
 
     return psi_update, llambda_update
 
 
 
-def update_psi_llambda(psi, llambda, alpha, beta, niter_em=10, tolerance=0., jit_compile=True, verbose=False, eta=1., min_iter=3):
+def update_psi_llambda(psi, llambda, alpha, beta, niter_em=10, tolerance=0., jit_compile=True, verbose=False, eta=1., min_iter=3, gamma=0.):
 
     assert 1. <= eta < 2
+    if (eta > 1.) and (gamma != 0):
+        print("Double accelration. Exit")
+        return None
     psi0 = psi.copy()     
-    first_term_1 = psi0 + get_diag(alpha, alpha) - get_diag(beta, beta) #diag of cov for psi    
-    _update =  _update_psi_llambda
+    first_term_1 = psi0 + get_diag(alpha, alpha) - get_diag(beta, beta) #diag of cov for psi
     
     counter = 0
     current_kl = low_rank_kl(psi, llambda, psi0, alpha, beta)
     kld = []
     rkld = []
+    psi_prev, llambda_prev = 0., 0.
     for counter in range(niter_em):
-        psi_update, llambda_update = _update(psi, llambda, alpha, beta, psi0, first_term_1)
+        psi_update, llambda_update = _update_psi_llambda(psi, llambda, alpha, beta, psi0, first_term_1)
 
         if np.isnan(psi_update).any() or np.isnan(llambda_update).any():
-            return psi, llambda, counter
+            print(f'{counter} nan in update')
+            return psi*np.NaN, llambda, counter
 
         else:
-            if tolerance == 0:
+            
+            if eta > 1:
                 psi = (1 - eta)*psi + eta*psi_update
                 llambda = (1 - eta)*llambda + eta*llambda_update
-
+            elif (gamma != 0):
+                psi_hold, llambda_hold = psi.copy(), llambda.copy()
+                psi = psi_update + gamma*(psi - psi_prev)
+                llambda  = llambda_update + gamma*(llambda - llambda_prev)
+                psi_prev, llambda_prev = psi_hold, llambda_hold
             else:
+                psi, llambda = psi_update, llambda_update
+                
+            if tolerance != 0:
+
                 #use kl to determine if convergeda
                 old_kl = current_kl
                 current_kl = low_rank_kl(psi_update, llambda_update, psi0, alpha, beta)
-                #if np.isnan(current_kl) or np.isinf(current_kl):
-                #    print(f'NaN/Inf in KL \n')
+                if np.isnan(current_kl) or np.isinf(current_kl):
+                   print(f'NaN/Inf in KL \n')
                 #    #return psi, llambda, counter
                 #    return psi*np.NaN, llambda*np.NaN, counter
                 
-                dist = ((psi_update - psi)**2).sum()**0.5
-                psi = (1 - eta)*psi + eta*psi_update
-                llambda = (1 - eta)*llambda + eta*llambda_update
-                
+                dist = ((psi_update - psi)**2).sum()**0.5                
                 rkld.append(np.abs(current_kl/old_kl-1))
                 kld.append(current_kl-old_kl)
                 #kld.append(current_kl)
                 if counter > min_iter:
                     second_der = (kld[-1] + kld[-3] - 2*kld[-2])/kld[-2]
+                    # if old_kl and (np.array(rkld[-1]) < tolerance).all() :
+                    #     if verbose: print(f'{counter} iterations to reach convergence')
+                    #     return psi, llambda, counter
+
                     if old_kl and (np.array(rkld[-min_iter:]) < tolerance).all() and second_der < tolerance**0.5:
                         norm = ((psi_update)**2).sum()**0.5
                         klds = [f"{i:0.2e}" for i in kld]
-                        if verbose: print(f'{counter} iterations to reach convergence. Second derivative {second_der}\n')
+                        if verbose: print(f'{counter} iterations to reach convergence. Second derivative {second_der}')
                         return psi, llambda, counter
     #print(f'Max EM update iterations reached, {rkld[-min_iter:]}, {second_der}')
     return psi, llambda, counter
+
+
+
 
 
 
@@ -157,13 +175,33 @@ def gsm_update_lr(samples, vs, mu0, psi0, llambda0):
     mu = mu0 + mu_update
     alpha = jnp.concatenate([llambda0, Supdate_0.T], axis=1)
     beta = Supdate_1.T
-    
-
-    #S_update = jnp.mean(S_update, axis=0)
-    #S = S0 + S_update
 
     return mu, alpha, beta
 
+
+
+def simultaneous_power_iteration(u, v, k, Q=None):
+    
+    # n, m = A.shape
+    np.random.seed(1)
+    n = u.shape[0]
+    if Q is None: Q = np.random.rand(n, k)
+    Q, _ = np.linalg.qr(Q)
+    Q_prev = Q
+    # print(A.shape, Q.shape)
+    
+    for i in range(100):
+        Z = u@(u.T@(Q)) - v@(v.T@(Q))
+        Q, R = np.linalg.qr(Z)
+        # can use other stopping criteria as well 
+        err = ((Q - Q_prev) ** 2).sum()
+        if i % 10 == 0:
+            pass
+            # print(i, err)
+        Q_prev = Q
+        if err < 1e-3:
+            break
+    return np.diag(R), Q
 
 
     
@@ -185,11 +223,24 @@ class PGSM:
         self.nan_update = []
         
 
+    def init_func(self, rank, mean, psi, llambda):
+        samples = np.random.normal(0, 1, size=(rank, self.D))
+        vs = self.lp_g(samples)    
+        mean, alpha, beta = gsm_update_lr(samples, vs, mean, psi, llambda) # gsm
+        true_diag = get_diag(alpha, alpha) - get_diag(beta, beta)
+        u = alpha[:, rank:]
+        v = beta
+        llambda = simultaneous_power_iteration(u, v, rank)[1]
+        ldiag = get_diag(llambda, llambda)
+        psi = true_diag - ldiag
+        return mean, psi, llambda
+        
 
     def fit(self, key, rank, mean=None, psi=None, llambda=None,
             batch_size=2, niter=5000, nprint=10, niter_em=10, jit_compile=True,
-            tolerance=0, print_convergence=False, eta=1.,
-            verbose=True, check_goodness=True, monitor=None, retries=10, jitter=1e-6):
+            tolerance=0, print_convergence=False, eta=1., gamma=0.,
+            scalellambda = 0.1,
+            verbose=True, check_goodness=True, monitor=None, retries=10, jitter=1e-4):
         """
         Main function to fit a multivariate Gaussian distribution to the target
 
@@ -217,10 +268,12 @@ class PGSM:
             mean = jnp.zeros(self.D)
 
         if llambda is None:
-            llambda = np.random.normal(0, 1, size=(self.D, K))*0.1
+            llambda = np.random.normal(0, 1, size=(self.D, K)) *scalellambda
         if psi is None:
-            psi = np.random.random(self.D)
+            psi = 1+np.random.random(self.D)
 
+        #mean, psi, llambda = self.init_func(rank, mean, psi, llambda)
+        
         nevals = 1
         nprojects = []
         update_function = gsm_update_lr
@@ -228,8 +281,17 @@ class PGSM:
         if jit_compile:
             update_function = jit(update_function)
         if (nprint > niter) and verbose: nprint = niter
-
+        tol_factor = 1.
+        niter_factor = 1.
+        
         # start loop
+        # start loop
+        if monitor is not None:
+            monitor.means = []
+            monitor.psis = []
+            monitor.llambdas = []
+            monitor.iparams = []
+            monitor.nprojects = []
         start = time()
         for i in range(niter + 1):
             if (i%(niter//nprint) == 0) and verbose :
@@ -243,23 +305,30 @@ class PGSM:
 
             # Can generate samples from jax distribution (commented below), but using numpy is faster
             j = 0
+            mean_prev, psi_prev, llambda_prev = None, None, None
             while True:         # Sometimes run crashes due to a bad sample. Avoid that by re-trying.
                 try:
                     key, key_sample = random.split(key, 2)
                     np.random.seed(key_sample[0])
-
                     eps = np.random.normal(0, 1, size=(batch_size, self.D))
                     z = np.random.normal(0, 1, size=(batch_size, K))
                     samples = mean + psi**0.5 * eps + (llambda@z.T).T
+                    #if i == 0 : samples = eps
+                    #else: samples = mean + psi**0.5 * eps + (llambda@z.T).T
                     vs = self.lp_g(samples)
                     nevals += batch_size
                     mean_new, alpha, beta = update_function(samples, vs, mean, psi, llambda) # gsm
                     psi_new, llambda_new, counter = project_function(psi, llambda, alpha, beta, \
-                                                            niter_em=niter_em, tolerance=tolerance, eta=eta,
-                                                            verbose=print_convergence) # project
+                                                                     niter_em = niter_em,
+                                                                     tolerance = tolerance,
+                                                                     #niter_em=int(niter_em *niter_factor),
+                                                                     #tolerance=tolerance * tol_factor,
+                                                                     eta=eta, gamma=gamma,
+                                                                     verbose=print_convergence) # project
                     if i == 0: print('compiled')
-                    nprojects.append(counter)
-                    psi_new +=  jitter # jitter diagonal
+                    monitor.nprojects.append(counter)
+                    psi_new = jnp.maximum(psi_new, jitter)
+                    #psi_new +=  jitter # jitter diagonal
 
                     break
                 except Exception as e:
@@ -267,21 +336,28 @@ class PGSM:
                         j += 1
                         print(f"Failed with exception {e}")
                         print(f"Trying again {j} of {retries}")
-                    else : raise e
+                    else : raise 
 
             is_good = self._check_goodness(mean_new, psi_new, llambda_new)
             if is_good == -1:
                 print("Max bad updates reached")
                 return mean, psi, llambda
             elif is_good == 1:
+                tol_factor = 1.
+                mean_prev, psi_prev, llambda_prev = mean*1., psi*1., llambda.copy()
                 mean, psi, llambda = mean_new, psi_new, llambda_new
             else:
+                #tol_factor /= 10.
+                #niter_factor *= 2.
+                if mean_prev is not None:
+                    mean, psi, llambda = mean_prev, psi_prev, llambda_prev
+                #else:
+                #    i = 0
                 if verbose: print("Bad update for covariance matrix. Revert")
 
         if monitor is not None:
             monitor_lr(monitor, i, [mean, psi, llambda], self.lp, key, nevals=nevals)
-            monitor.nprojects = nprojects
-        print('Total number of projections : ', np.sum(nprojects))
+        print('Total number of projections : ', np.sum(monitor.nprojects), np.sum(monitor.nprojects)/i)
         return mean, psi, llambda
 
 
