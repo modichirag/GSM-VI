@@ -32,7 +32,7 @@ def logp_lr(y, mean, psi, llambda):
     second_term = res.T@minv@res
     
     logexp = -0.5 * (first_term - second_term)
-    logdet = -0.5 * (jnp.linalg.slogdet(m).logabsdet + jnp.sum(jnp.log(psi))) #jnp.log(jnp.linalg.det(m)*jnp.prod(psi))
+    logdet = -0.5 * (jnp.linalg.slogdet(m)[1] + jnp.sum(jnp.log(psi))) #jnp.log(jnp.linalg.det(m)*jnp.prod(psi))
     logp = logexp + logdet - 0.5*D*jnp.log(2*jnp.pi)
     return logp
 
@@ -74,10 +74,10 @@ def monitor_lr(monitor, i, params, lp, key, nevals, force_save=False):
         monitor.iparams.append(i)
 
     #save
-    if (i%monitor.savepoint == 0) or force_save:
+    if ((i%monitor.savepoint == 0) or force_save) & (monitor.savepath is not None):
 
         print("Savepoint: saving current fit, loss and diagnostic plots")
-
+        
         os.makedirs(monitor.savepath, exist_ok=True)
         np.save(f"{monitor.savepath}/mean_fit", mean)
         np.save(f"{monitor.savepath}/psi_fit", psi)
