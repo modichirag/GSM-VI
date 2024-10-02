@@ -22,7 +22,7 @@ def low_rank_kl(psi1, llambda1, psi0, alpha, beta):
     #minv = jnp.linalg.pinv(m)
     #mltpsinv = minv@ltpsinv
     mltpsinv = jnp.linalg.solve(m, ltpsinv)
-    det_term =  jnp.linalg.slogdet(m).logabsdet + jnp.sum(jnp.log(psi1))
+    det_term =  jnp.linalg.slogdet(m)[1] + jnp.sum(jnp.log(psi1))
 
     t0 = (psi0 + get_diag(alpha, alpha) - get_diag(beta, beta))/psi1
     t1 = psi0*get_diag(ltpsinv.T, mltpsinv.T)
