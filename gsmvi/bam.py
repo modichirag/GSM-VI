@@ -29,8 +29,8 @@ def get_sqrt(M):
         print("Backend not recongnized in get_sqrt function. Should be either gpu or cpu")
         raise
     return M_root.real
-        
-        
+
+
 
 
 def bam_update(samples, vs, mu0, S0, reg):
@@ -68,7 +68,7 @@ def bam_update(samples, vs, mu0, S0, reg):
     mat = I + 4 * jnp.matmul(U, V)
     # S = 2 * jnp.matmul(V, jnp.linalg.inv(I + sqrtm(mat).real))
     S = 2 * jnp.linalg.solve(I + get_sqrt(mat).T, V.T)
-        
+
     mu = 1/(1+reg) * mu0 + reg/(1+reg) * (jnp.matmul(S, gbar) + xbar)
 
     return mu, S
@@ -105,9 +105,13 @@ def bam_lowrank_update(samples, vs, mu0, S0, reg):
     U = reg * G + (reg)/(1+reg) * jnp.outer(gbar, gbar)
     V = S0 + reg * C + (reg)/(1+reg) * jnp.outer(mu0 - xbar, mu0 - xbar)
 
-    # Form decomposition that is D x K
-    Q = compute_Q((U, B))
-    I = jnp.identity(B)
+    # Form decomposition that is D x K, where K=B+1
+    #Q = compute_Q((U, B))
+    GT = (vs - gbar)/B**0.5    # shape BxD
+    Q = jnp.concatenate([reg**0.5*GT.T,  ((reg)/(1+reg))**0.5 * gbar.reshape(-1, 1)], axis=1)
+    print(Q.shape)
+
+    I = jnp.identity(B+1)
     VT = V.T
     A = VT.dot(Q)
     BB = 0.5*I + jnp.real(get_sqrt(A.T.dot(Q) + 0.25*I))
@@ -128,9 +132,9 @@ def bam_lowrank_update(samples, vs, mu0, S0, reg):
 #     B, D = samples.shape
 #     xbar = jnp.mean(samples, axis=0)
 #     gbar = jnp.mean(vs, axis=0)
-#     XT = (samples - xbar)/B**0.5  # shape BxD 
-#     GT = (vs - gbar)/B**0.5    # shape BxD                                                     
-#     Q = jnp.concatenate([reg**0.5*GT.T,  ((reg)/(1+reg))**0.5 * gbar.reshape(-1, 1)], axis=1) 
+#     XT = (samples - xbar)/B**0.5  # shape BxD
+#     GT = (vs - gbar)/B**0.5    # shape BxD
+#     Q = jnp.concatenate([reg**0.5*GT.T,  ((reg)/(1+reg))**0.5 * gbar.reshape(-1, 1)], axis=1)
 #     R = jnp.concatenate([llambda, reg**0.5*XT.T, (reg/(1+reg))**0.5*(mu0-xbar).reshape(-1, 1)], axis=1)
 #     # V = jnp.diag(psi) + R@R.T
 #     V = S0 + reg * C + (reg)/(1+reg) * jnp.outer(mu0 - xbar, mu0 - xbar)
@@ -199,7 +203,7 @@ class BAM:
 
         nevals = 1
 
-        
+
         if batch_size < self.D:
             print("use low rank")
             update_function = bam_lowrank_update
@@ -207,7 +211,7 @@ class BAM:
             update_function = bam_update
         if self.jit_compile:
             update_function = jit(update_function)
-                
+
         if nprint > niter: nprint = niter
         for i in range(niter + 1):
             if (i%(niter//nprint) == 0) and verbose :
