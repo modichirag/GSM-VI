@@ -7,7 +7,7 @@ from scipy.linalg import sqrtm as sqrtm_sp
 import numpy as np
 import scipy.sparse as spys
 from jax.lib import xla_bridge
-from gsmvi.em_lr_projection import fit_lr_gaussian, project_lr_gaussian
+#from gsmvi.em_lr_projection import fit_lr_gaussian, project_lr_gaussian
 from gsmvi.bam import bam_update, bam_lowrank_update, get_sqrt
 from gsmvi.low_rank_gaussian import logp_lr, det_cov_lr, get_diag, monitor_lr
 from gsmvi import plotting
@@ -90,14 +90,14 @@ def _update_psi_llambda_diana(psi, llambda, R, VTQM, QTV, psi0, first_term, jitt
     return psi_update, llambda_update
 
 
-def update_psi_llambda(psi, llambda, R, VTQM, QTV, niter_em=10, tolerance=0., jit_compile=True, verbose=False, eta=1., min_iter=3, psi0=None, jitter=1e-6):
+def update_psi_llambda(psi, llambda, R, VTQM, QTV, niter_em=10, tolerance=0., verbose=False, eta=1., min_iter=3, psi0=None,
+                       updateform='lawrence', jitter=1e-6):
 
     assert 1. <= eta < 2
     if psi0 is None: psi0 = psi.copy()     
     first_term_1 = psi0 + get_diag(R, R) - get_diag(VTQM, QTV.T) #diag of cov for psi
-    #if jit_compile :  _update = jit(_update_psi_llambda)
-    #else:   _update = _update_psi_llambda
-    _update =  _update_psi_llambda
+    if updateform == 'lawrence' : _update =  _update_psi_llambda
+    elif updateform == 'diana' : _update = _update_psi_llambda_diana
     
     counter = 0
     current_kl = low_rank_kl(psi, llambda, psi0, R, VTQM, QTV)
@@ -197,7 +197,9 @@ class PBAM:
             batch_size=2, niter=5000, nprint=10, niter_em=10, jit_compile=True,
             tolerance=0, print_convergence=False, reg_factor=1., eta=1.,
             scalellambda = 1., tol_factor=1.,
-            verbose=True, check_goodness=True, monitor=None, retries=10, jitter0=1e-6, jitterf=None):
+            verbose=True, check_goodness=True, monitor=None, retries=10,
+            updateform = 'lawrence', updatemode = 'current', postmean=0,
+            jitter0=1e-6, jitterf=None):
         """
         Main function to fit a multivariate Gaussian distribution to the target
 
@@ -225,19 +227,18 @@ class PBAM:
             mean = jnp.zeros(self.D)
 
         if llambda is None:
-            llambda = np.random.normal(0, 1, size=(self.D, K)) *scalellambda
+            llambda = np.random.normal(0, 1, size=(self.D, K)) *scalellambda / (D*K)**0.5
         if psi is None:
-            psi = 1+np.random.random(self.D)
+            psi = np.random.random(self.D)
 
         nevals = 1
         nprojects = []
-        update_function = pbam_update
-        project_function = partial(update_psi_llambda, jit_compile=jit_compile)
-        if jit_compile:
-            update_function = jit(update_function)
+        update_function = jit(pbam_update)
+        project_function = partial(update_psi_llambda, updateform=updateform)
         if (nprint > niter) and verbose: nprint = niter
         if jitterf is None: jitterf = lambda x : jitter0
-
+        best_rkl = np.inf
+        
         # start loop
         if monitor is not None:
             monitor.means = []
@@ -245,7 +246,9 @@ class PBAM:
             monitor.llambdas = []
             monitor.iparams = []
             monitor.nprojects = []
+            
         start = time()
+        mean_prev, psi_prev, llambda_prev = None, None, None
         for i in range(niter + 1):
             if (i%(niter//nprint) == 0) and verbose :
                 print(f'Iteration {i} of {niter}. Time taken : ', time() - start)
@@ -254,11 +257,20 @@ class PBAM:
             if monitor is not None:
                 if (i%monitor.checkpoint) == 0:
                     monitor_lr(monitor, i, [mean, psi, llambda], self.lp, key, nevals=nevals)
+                    # keep a copy of the best fit so far
+                    if monitor.rkl[-1] < best_rkl:
+                        #print('new best kl : (best, current) : ', best_rkl, monitor.rkl[-1])
+                        best_rkl = monitor.rkl[-1]
+                        mean_prev, psi_prev, llambda_prev = mean, psi, llambda
+                    if (monitor.rkl[-1] > 0) & (monitor.rkl[-1] > 2*best_rkl):
+                        print('diverging? : (best, current) : ', best_rkl, monitor.rkl[-1])
+                        mean, psi, llambda = mean_prev, psi_prev, llambda_prev
+                        self.nan_update.append(i)                    
                     nevals = 0
+                    
             # Can generate samples from jax distribution (commented below), but using numpy is faster
             j = 0
             jitter = jitterf(i)
-            mean_prev, psi_prev, llambda_prev = None, None, None
             while True:         # Sometimes run crashes due to a bad sample. Avoid that by re-trying.
                 try:
                     key, key_sample = random.split(key, 2)
@@ -272,23 +284,39 @@ class PBAM:
                     nevals += batch_size
                     reg = regf(i) * reg_factor
                     mean_new, components = update_function(samples, vs, mean, psi, llambda, reg) # bam
-                    # reset parameters
                     psi0 = psi.copy()
-                    #R, VTQM, QTV = components
-                    #llambda = np.random.normal(0, 1, size=(self.D, K)) *scalellambda
-                    #psi = 1 + np.random.random(self.D)
-                    #psi = psi + get_diag(R, R) - get_diag(VTQM, QTV.T) #- get_diag(llambda, llambda) #reset2
                     
-                    psi_new, llambda_new, counter = project_function(psi, llambda, *components, \
+                    if updatemode == 'current':
+                        psi_new, llambda_new, counter = project_function(psi, llambda, *components, \
                                                             niter_em=niter_em, tolerance=tolerance*tol_factor, eta=eta,
                                                                      verbose=print_convergence, psi0=psi0, jitter=jitter) # project
+                    elif updatemode == 'reset':
+
+                        llambda = np.random.normal(0, 1, size=(self.D, K)) *scalellambda /(self.D*K)**0.5
+                        psi = np.random.random(self.D)
+                        #psi = 1 + np.random.random(self.D)
+                        #R, VTQM, QTV = components
+                        #psi = psi + get_diag(R, R) - get_diag(VTQM, QTV.T) #- get_diag(llambda, llambda) #reset2
+                        psi_new, llambda_new, counter = project_function(psi, llambda, *components, \
+                                                            niter_em=niter_em, tolerance=tolerance*tol_factor, eta=eta,
+                                                                     verbose=print_convergence, psi0=psi0, jitter=jitter) # project
+                    elif updatemode == 'llambda0':
+                        psi = project_function(psi*0.+1, llambda*0., *components, \
+                                                            niter_em=niter_em, tolerance=max(tolerance*tol_factor, 1e-5), eta=eta,
+                                                                     verbose=print_convergence, psi0=psi0, jitter=jitter)[0]
+                        psi_new, llambda_new, counter = project_function(psi, llambda, *components, \
+                                                            niter_em=niter_em, tolerance=tolerance*tol_factor, eta=eta,
+                                                                     verbose=print_convergence, psi0=psi0, jitter=jitter) # project
+                        
+                        
                     if i == 0: print('compiled')
                     monitor.nprojects.append(counter)
                     psi_new = jnp.maximum(psi_new, jitter) # jitter diagonal
                     # or update mean later?
-                    #xbar = samples.mean(axis=0)
-                    #gbar = vs.mean(axis=0)
-                    #mean_new = 1/(1+reg) * mean + reg/(1+reg) * (psi_new*gbar + llambda_new@(llambda_new.T@gbar) + xbar)
+                    if postmean:
+                        xbar = samples.mean(axis=0)
+                        gbar = vs.mean(axis=0)
+                        mean_new = 1/(1+reg) * mean + reg/(1+reg) * (psi_new*gbar + llambda_new@(llambda_new.T@gbar) + xbar)
                     break
                 
                 except Exception as e:
@@ -315,6 +343,7 @@ class PBAM:
                 mean, psi, llambda = mean_new, psi_new, llambda_new
             else:
                 reg_factor /= 2.
+                tol_factor /= 2.
                 if mean_prev is not None:
                     mean, psi, llambda = mean_prev, psi_prev, llambda_prev
                 #tol_factor /= 10
@@ -341,7 +370,7 @@ class PBAM:
             for m in [mean, psi, cov]:
                 if (np.isnan(m)).any():
                     self.nan_update.append(j)
-                    if len(self.nan_update) > 20:
+                    if len(self.nan_update) > 50:
                         is_good = -1
                     return is_good
             is_good = 1
@@ -351,191 +380,191 @@ class PBAM:
         
 
         
-class PBAM_fullcov:
-    """
-    Wrapper class for using GSM updates to fit a distribution
-    """
-    def __init__(self, D, lp, lp_g,  jit_compile=True):
-        """
-        Inputs:
-          D: (int) Dimensionality (number) of parameters
-          lp : Function to evaluate target log-probability distribution.
-               (Only used in monitor, not for fitting)
-          lp_g : Function to evaluate score, i.e. the gradient of the target log-probability distribution
-        """
-        self.D = D
-        self.lp = lp
-        self.lp_g = lp_g
-        self.jit_compile = jit_compile
-        if not jit_compile:
-            print("Not using jit compilation. This may take longer than it needs to.")
+# class PBAM_fullcov:
+#     """
+#     Wrapper class for using GSM updates to fit a distribution
+#     """
+#     def __init__(self, D, lp, lp_g,  jit_compile=True):
+#         """
+#         Inputs:
+#           D: (int) Dimensionality (number) of parameters
+#           lp : Function to evaluate target log-probability distribution.
+#                (Only used in monitor, not for fitting)
+#           lp_g : Function to evaluate score, i.e. the gradient of the target log-probability distribution
+#         """
+#         self.D = D
+#         self.lp = lp
+#         self.lp_g = lp_g
+#         self.jit_compile = jit_compile
+#         if not jit_compile:
+#             print("Not using jit compilation. This may take longer than it needs to.")
 
 
 
-    def fit(self, key, regf, rank, mean=None, cov=None,
-            batch_size=2, niter=5000, nprint=10, n_project=128, tolerance=0., niter_em=10,
-            verbose=True, check_goodness=True, monitor=None, retries=10, jitter=1e-6):
-        """
-        Main function to fit a multivariate Gaussian distribution to the target
+#     def fit(self, key, regf, rank, mean=None, cov=None,
+#             batch_size=2, niter=5000, nprint=10, n_project=128, tolerance=0., niter_em=10,
+#             verbose=True, check_goodness=True, monitor=None, retries=10, jitter=1e-6):
+#         """
+#         Main function to fit a multivariate Gaussian distribution to the target
 
-        Inputs:
-          key: Random number generator key (jax.random.PRNGKey)
-          mean : Function to return regularizer value at an iteration. See Regularizers class below
-          mean : Optional, initial value of the mean. Expected None or array of size D
-          cov : Optional, initial value of the covariance matrix. Expected None or array of size DxD
-          batch_size : Optional, int. Number of samples to match scores for at every iteration
-          niter : Optional, int. Total number of iterations
-          nprint : Optional, int. Number of iterations after which to print logs
-          verbose : Optional, bool. If true, print number of iterations after nprint
-          check_goodness : Optional, bool. Recommended. Wether to check floating point errors in covariance matrix update
-          monitor : Optional. Function to monitor the progress and track different statistics for diagnostics.
-                    Function call should take the input tuple (iteration number, [mean, cov], lp, key, number of grad evals).
-                    Example of monitor class is provided in utils/monitors.py
+#         Inputs:
+#           key: Random number generator key (jax.random.PRNGKey)
+#           mean : Function to return regularizer value at an iteration. See Regularizers class below
+#           mean : Optional, initial value of the mean. Expected None or array of size D
+#           cov : Optional, initial value of the covariance matrix. Expected None or array of size DxD
+#           batch_size : Optional, int. Number of samples to match scores for at every iteration
+#           niter : Optional, int. Total number of iterations
+#           nprint : Optional, int. Number of iterations after which to print logs
+#           verbose : Optional, bool. If true, print number of iterations after nprint
+#           check_goodness : Optional, bool. Recommended. Wether to check floating point errors in covariance matrix update
+#           monitor : Optional. Function to monitor the progress and track different statistics for diagnostics.
+#                     Function call should take the input tuple (iteration number, [mean, cov], lp, key, number of grad evals).
+#                     Example of monitor class is provided in utils/monitors.py
 
-        Returns:
-          mu : Array of shape D, fit of the mean
-          cov : Array of shape DxD, fit of the covariance matrix
-        """
+#         Returns:
+#           mu : Array of shape D, fit of the mean
+#           cov : Array of shape DxD, fit of the covariance matrix
+#         """
 
-        if mean is None:
-            mean = jnp.zeros(self.D)
-        if cov is None:
-            cov = jnp.identity(self.D)
+#         if mean is None:
+#             mean = jnp.zeros(self.D)
+#         if cov is None:
+#             cov = jnp.identity(self.D)
 
-        llambda, psi = None, None
-        nevals = 1
+#         llambda, psi = None, None
+#         nevals = 1
 
-        if batch_size < self.D:
-            update_function = bam_lowrank_update
-        else:
-            update_function = bam_update
-        if self.jit_compile:
-            update_function = jit(update_function)
+#         if batch_size < self.D:
+#             update_function = bam_lowrank_update
+#         else:
+#             update_function = bam_update
+#         if self.jit_compile:
+#             update_function = jit(update_function)
                 
-        if (nprint > niter) and verbose: nprint = niter
-        for i in range(niter + 1):
-            if (i%(niter//nprint) == 0) and verbose :
-                print(f'Iteration {i} of {niter}')
+#         if (nprint > niter) and verbose: nprint = niter
+#         for i in range(niter + 1):
+#             if (i%(niter//nprint) == 0) and verbose :
+#                 print(f'Iteration {i} of {niter}')
 
-            if monitor is not None:
-                if (i%monitor.checkpoint) == 0:
-                    monitor(i, [mean, cov], self.lp, key, nevals=nevals)
-                    nevals = 0
+#             if monitor is not None:
+#                 if (i%monitor.checkpoint) == 0:
+#                     monitor(i, [mean, cov], self.lp, key, nevals=nevals)
+#                     nevals = 0
 
-            # Can generate samples from jax distribution (commented below), but using numpy is faster
-            j = 0
-            while True:         # Sometimes run crashes due to a bad sample. Avoid that by re-trying.
-                try:
-                    key, key_sample = random.split(key, 2)
-                    np.random.seed(key_sample[0])
-                    samples = np.random.multivariate_normal(mean=mean, cov=cov, size=batch_size)
-                    # samples = MultivariateNormal(loc=mean, covariance_matrix=cov).sample(key, (batch_size,))
-                    vs = self.lp_g(samples)
-                    nevals += batch_size
-                    reg = regf(i)
-                    mean_new, cov_new = update_function(samples, vs, mean, cov, reg)
-                    cov_new += np.eye(self.D) * jitter # jitter covariance matrix
-                    cov_new = (cov_new + cov_new.T)/2.
-                    break
-                except Exception as e:
-                    if j < retries :
-                        j += 1
-                        print(f"Failed with exception {e}")
-                        print(f"Trying again {j} of {retries}")
-                    else : raise e
+#             # Can generate samples from jax distribution (commented below), but using numpy is faster
+#             j = 0
+#             while True:         # Sometimes run crashes due to a bad sample. Avoid that by re-trying.
+#                 try:
+#                     key, key_sample = random.split(key, 2)
+#                     np.random.seed(key_sample[0])
+#                     samples = np.random.multivariate_normal(mean=mean, cov=cov, size=batch_size)
+#                     # samples = MultivariateNormal(loc=mean, covariance_matrix=cov).sample(key, (batch_size,))
+#                     vs = self.lp_g(samples)
+#                     nevals += batch_size
+#                     reg = regf(i)
+#                     mean_new, cov_new = update_function(samples, vs, mean, cov, reg)
+#                     cov_new += np.eye(self.D) * jitter # jitter covariance matrix
+#                     cov_new = (cov_new + cov_new.T)/2.
+#                     break
+#                 except Exception as e:
+#                     if j < retries :
+#                         j += 1
+#                         print(f"Failed with exception {e}")
+#                         print(f"Trying again {j} of {retries}")
+#                     else : raise e
 
-            is_good = self._check_goodness(cov_new)
-            if is_good:
-                mean, cov = mean_new, cov_new
-            else:
-                if verbose: print("Bad update for covariance matrix. Revert")
+#             is_good = self._check_goodness(cov_new)
+#             if is_good:
+#                 mean, cov = mean_new, cov_new
+#             else:
+#                 if verbose: print("Bad update for covariance matrix. Revert")
                 
-            if tolerance!= 0: x = np.random.multivariate_normal(mean, cov, n_project)
-            else: x = None
-            if psi is None: 
-                psi = jnp.diag(np.random.random(self.D))
-                #psi = jnp.diag(jnp.diag(cov))
-            if llambda is None: 
-                llambda = np.random.normal(0, 1, size=(self.D, rank))
-                #llambda = np.linalg.eigh(cov)[1][:, :rank]
-            llambda, psi =  project_lr_gaussian(mean, cov, llambda, psi, data=x, num_of_itr=niter_em, tolerance=tolerance)
-            psi += jitter
-            #_, llambda, psi = fit_lr_gaussian(x, rank, verbose=False,
-            #                                     mu=mean, llambda=llambda, psi=psi)
-            cov = llambda@llambda.T + psi
+#             if tolerance!= 0: x = np.random.multivariate_normal(mean, cov, n_project)
+#             else: x = None
+#             if psi is None: 
+#                 psi = jnp.diag(np.random.random(self.D))
+#                 #psi = jnp.diag(jnp.diag(cov))
+#             if llambda is None: 
+#                 llambda = np.random.normal(0, 1, size=(self.D, rank))
+#                 #llambda = np.linalg.eigh(cov)[1][:, :rank]
+#             llambda, psi =  project_lr_gaussian(mean, cov, llambda, psi, data=x, num_of_itr=niter_em, tolerance=tolerance)
+#             psi += jitter
+#             #_, llambda, psi = fit_lr_gaussian(x, rank, verbose=False,
+#             #                                     mu=mean, llambda=llambda, psi=psi)
+#             cov = llambda@llambda.T + psi
         
 
-        if monitor is not None:
-            monitor(i, [mean, cov], self.lp, key, nevals=nevals)
-        return mean, cov
+#         if monitor is not None:
+#             monitor(i, [mean, cov], self.lp, key, nevals=nevals)
+#         return mean, cov
 
 
-    def _check_goodness(self, cov):
-        '''
-        Internal function to check if the new covariance matrix is a valid covariance matrix.
-        Required due to floating point errors in updating the convariance matrix directly,
-        insteead of it's Cholesky form.
-        '''
-        is_good = False
-        try:
-            if (np.isnan(np.linalg.cholesky(cov))).any():
-                nan_update.append(j)
-            else:
-                is_good = True
-            return is_good
-        except:
-            return is_good
+#     def _check_goodness(self, cov):
+#         '''
+#         Internal function to check if the new covariance matrix is a valid covariance matrix.
+#         Required due to floating point errors in updating the convariance matrix directly,
+#         insteead of it's Cholesky form.
+#         '''
+#         is_good = False
+#         try:
+#             if (np.isnan(np.linalg.cholesky(cov))).any():
+#                 nan_update.append(j)
+#             else:
+#                 is_good = True
+#             return is_good
+#         except:
+#             return is_good
 
 
 
 
 
-# def bam_lowrank_update2(samples, vs, mu0, S0, reg):
-#     """
-#     Returns updated mean and covariance matrix with GSM updates.
-#     For a batch, this is simply the mean of updates for individual samples.
+# # def bam_lowrank_update2(samples, vs, mu0, S0, reg):
+# #     """
+# #     Returns updated mean and covariance matrix with GSM updates.
+# #     For a batch, this is simply the mean of updates for individual samples.
 
-#     Inputs:
-#     samples: Array of samples of shape BxD where B is the batch dimension
-#       vs : Array of score functions of shape BxD corresponding to samples
-#       mu0 : Array of shape D, current estimate of the mean
-#       S0 : Array of shape DxD, current estimate of the covariance matrix
+# #     Inputs:
+# #     samples: Array of samples of shape BxD where B is the batch dimension
+# #       vs : Array of score functions of shape BxD corresponding to samples
+# #       mu0 : Array of shape D, current estimate of the mean
+# #       S0 : Array of shape DxD, current estimate of the covariance matrix
 
-#     Returns:
-#       mu : Array of shape D, new estimate of the mean
-#       S : Array of shape DxD, new estimate of the covariance matrix
-#     """
+# #     Returns:
+# #       mu : Array of shape D, new estimate of the mean
+# #       S : Array of shape DxD, new estimate of the covariance matrix
+# #     """
     
-#     assert len(samples.shape) == 2
-#     assert len(vs.shape) == 2
-#     B, D = samples.shape
-#     xbar = jnp.mean(samples, axis=0)
-#     gbar = jnp.mean(vs, axis=0)
-#     XT = (samples - xbar)/B  # shape BxD
-#     GT = (grads - gbar)/B    # shape BxD
+# #     assert len(samples.shape) == 2
+# #     assert len(vs.shape) == 2
+# #     B, D = samples.shape
+# #     xbar = jnp.mean(samples, axis=0)
+# #     gbar = jnp.mean(vs, axis=0)
+# #     XT = (samples - xbar)/B  # shape BxD
+# #     GT = (grads - gbar)/B    # shape BxD
 
-#     U = np.stack([reg*GT,  (reg)/(1+reg) * gbar], axis=0)
-#     #outer_map = jax.vmap(jnp.outer, in_axes=(0, 0))
-#     #xdiff = samples - xbar
-#     #C = jnp.mean(outer_map(xdiff, xdiff), axis=0)
+# #     U = np.stack([reg*GT,  (reg)/(1+reg) * gbar], axis=0)
+# #     #outer_map = jax.vmap(jnp.outer, in_axes=(0, 0))
+# #     #xdiff = samples - xbar
+# #     #C = jnp.mean(outer_map(xdiff, xdiff), axis=0)
 
-#     gdiff = vs - gbar
-#     G = jnp.mean(outer_map(gdiff, gdiff), axis=0)
+# #     gdiff = vs - gbar
+# #     G = jnp.mean(outer_map(gdiff, gdiff), axis=0)
 
-#     U = reg * G + (reg)/(1+reg) * jnp.outer(gbar, gbar)
-#     V = S0 + reg * C + (reg)/(1+reg) * jnp.outer(mu0 - xbar, mu0 - xbar)
+# #     U = reg * G + (reg)/(1+reg) * jnp.outer(gbar, gbar)
+# #     V = S0 + reg * C + (reg)/(1+reg) * jnp.outer(mu0 - xbar, mu0 - xbar)
 
-#     # Form decomposition that is D x K
-#     Q = compute_Q((U, B))
-#     I = jnp.identity(B)
-#     VT = V.T
-#     A = VT.dot(Q)
-#     BB = 0.5*I + jnp.real(get_sqrt(A.T.dot(Q) + 0.25*I))
-#     BB = BB.dot(BB)
-#     CC = jnp.linalg.solve(BB, A.T)
-#     S = VT - A @ CC
-#     mu = 1/(1+reg) * mu0 + reg/(1+reg) * (jnp.matmul(S, gbar) + xbar)
+# #     # Form decomposition that is D x K
+# #     Q = compute_Q((U, B))
+# #     I = jnp.identity(B)
+# #     VT = V.T
+# #     A = VT.dot(Q)
+# #     BB = 0.5*I + jnp.real(get_sqrt(A.T.dot(Q) + 0.25*I))
+# #     BB = BB.dot(BB)
+# #     CC = jnp.linalg.solve(BB, A.T)
+# #     S = VT - A @ CC
+# #     mu = 1/(1+reg) * mu0 + reg/(1+reg) * (jnp.matmul(S, gbar) + xbar)
 
-#     return mu, S
+# #     return mu, S
 
         
