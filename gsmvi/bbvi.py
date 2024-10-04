@@ -6,7 +6,30 @@ from numpyro.distributions import MultivariateNormal, Normal
 import optax
 from gsmvi.low_rank_gaussian import logp_lr, monitor_lr
 
-logp_lr_vmap = jax.vmap(logp_lr, in_axes=[0, None, None, None])
+@jit
+def logp_lr_unstable(y, mean, psi, llambda):
+
+    D, K = llambda.shape
+    x = y - mean
+    
+    first_term = jnp.dot(x, x/psi)
+    ltpsinv = llambda.T*(1/psi)
+    m = jnp.identity(K) + ltpsinv@llambda
+    #minv = jnp.linalg.pinv(m)
+    res = ltpsinv@x
+    #second_term = res.T@minv@res
+    second_term = res.T@jnp.linalg.solve(m, res)
+    
+    logexp = -0.5 * (first_term - second_term)
+    logdet = -0.5 * (jnp.linalg.slogdet(m)[1] + jnp.sum(jnp.log(psi))) #jnp.log(jnp.linalg.det(m)*jnp.prod(psi))
+    #logdet = jnp.log(jnp.linalg.det(m)*jnp.prod(psi))
+    logp = logexp + logdet - 0.5*D*jnp.log(2*jnp.pi)
+    #logp = logexp - 0.5*D*jnp.log(2*jnp.pi)
+    return logp
+
+
+logp_lr_vmap = jax.vmap(logp_lr_unstable, in_axes=[0, None, None, None])
+
 
 class BBVI():
     def __init__(self, D, lp, lp_g=None, jit_compile=True):
@@ -375,7 +398,9 @@ class ADVI_LR(BBVI):
                     key, _ = random.split(key)
                     params, opt_state, loss = opt_step(params, opt_state, key)
                     mean, psi, llambda = params
-                    psi = psi + jitter
+                    #psi = psi + jitter
+                    psi = jnp.maximum(psi, jitter)
+
                     params = (mean, psi, llambda)
                     nevals += batch_size
                     break
