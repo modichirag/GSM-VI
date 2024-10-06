@@ -1,7 +1,7 @@
 import sys, os
 import os
 
-from gsmvi.bbvi import ADVI_LR
+from gsmvi.bbvi import ADVI_Factorized
 from gsmvi.monitors import KLMonitor
 
 import matplotlib.pyplot as plt
@@ -18,7 +18,6 @@ parser.add_argument('--rank', type=int, default=32, help='dimension')
 parser.add_argument('--noise', type=float, default=0.01, help='rank')
 parser.add_argument('--dataseed', type=int, default=0, help='seed between 0-999, default=0')
 #arguments for GSM
-parser.add_argument('--ranklr', type=int, default=0, help='rank of variational family')
 parser.add_argument('--seed', type=int, default=99, help='seed between 0-999, default=99')
 parser.add_argument('--niter', type=int, default=1001, help='number of iterations in training')
 parser.add_argument('--batch', type=int, default=2, help='batch size, default=2')
@@ -54,20 +53,16 @@ elif args.cond == 3:  path = f"{basepath}/Gauss-D{D}-dnorm/R{rank}-seed{args.dat
 elif args.cond == 4:  path = f"{basepath}/Gauss-D{D}-ranknorm/R{rank}-seed{args.dataseed}/"
 elif args.cond == 5:  path = f"{basepath}/Gauss-D{D}-nonorm/R{rank}-seed{args.dataseed}/"
 
-if args.ranklr != 0:
-    ranklr = args.ranklr
-    path = path + f'ranklr{args.ranklr}/'
-else: ranklr = rank
 
 os.makedirs(path, exist_ok=True)
 if args.schedule == "":
-    savepath = f'{path}/padvi/B{args.batch}-lr{args.lr:0.3f}{suffix}/'
+    savepath = f'{path}/advi_fac/B{args.batch}-lr{args.lr:0.3f}{suffix}/'
     schedule = args.lr
 elif args.schedule == "linear":
-    savepath = f'{path}/padvi/B{args.batch}-lr{args.lr:0.3f}-linschedule{suffix}/'
+    savepath = f'{path}/advi_fac/B{args.batch}-lr{args.lr:0.3f}-linschedule{suffix}/'
     schedule = optax.schedules.linear_schedule(args.lr, end_value=1e-5, transition_steps=args.niter)
 elif args.schedule == "cosine":
-    savepath = f'{path}/padvi/B{args.batch}-lr{args.lr:0.3f}-cosineschedule{suffix}/'
+    savepath = f'{path}/advi_fac/B{args.batch}-lr{args.lr:0.3f}-cosineschedule{suffix}/'
     schedule = optax.schedules.cosine_decay_schedule(args.lr, alpha=1e-5/args.lr, decay_steps=args.niter)
 
 os.makedirs(savepath, exist_ok=True)
@@ -88,7 +83,7 @@ np.save(f"{path}/mean", mean)
 np.save(f"{path}/cov", cov)
 
 key = jax.random.PRNGKey(2)
-alg = ADVI_LR(D, ranklr, lp_vmap, lp_g_vmap)
+alg = ADVI_Factorized(D, lp_vmap, lp_g_vmap)
 #alg = PBAM2(D, lp_vmap, lp_g_vmap)
 
 monitor = KLMonitor(batch_size=32, ref_samples=ref_samples,
@@ -99,11 +94,10 @@ monitor = KLMonitor(batch_size=32, ref_samples=ref_samples,
 
 np.random.seed(args.seed)
 mean = jnp.zeros(D)
-psi = np.random.random(D)
-llambda = np.random.normal(0, 1, size=(D, ranklr))
+scale = np.random.random(D)
 opt = optax.adam(learning_rate=schedule)
-meanfit, psi, llambda, losses = alg.fit(key, opt,
-                                        mean=mean, psi=psi, llambda=llambda,
+meanfit, scalefit, losses = alg.fit(key, opt,
+                                        mean=mean, scale=scale, 
                                         batch_size=args.batch, niter=args.niter, 
                                         nprint=args.nprint, monitor=monitor)
 
@@ -121,13 +115,10 @@ plt.savefig(f'{savepath}/loss.png')
 plt.close()
 
 np.save(f'{savepath}/means', monitor.means)
-np.save(f'{savepath}/llambdas', monitor.llambdas)
-np.save(f'{savepath}/psis', monitor.psis)
+np.save(f'{savepath}/covs', monitor.covs)
 
 #
-eps = np.random.normal(0, 1, (2000, D))
-z = np.random.normal(0, 1, (2000, ranklr))
-s3 = meanfit + psi*eps + (llambda@z.T).T
+s3 = np.random.multivariate_normal(meanfit, np.diag(scalefit), 2000)
 s = ref_samples[:5000, :] 
 
 dplot = min(D, 5)
@@ -139,7 +130,7 @@ for i in range(dplot):
         ii, jj = idx[i], idx[j]
         if i == j: 
             ax[i, i].hist(s[..., ii], alpha=0.7, density=True, bins=30, color='k', histtype='step', lw=2);
-            ax[i, i].hist(s3[..., ii], alpha=0.7, density=True, bins=30, label=f"rank={ranklr}");
+            ax[i, i].hist(s3[..., ii], alpha=0.7, density=True, bins=30, label=f"factorized");
             
         elif j > i:
             ax[j, i].plot(s[..., ii], s[..., jj], '.', alpha=1., ms=2, color='k')

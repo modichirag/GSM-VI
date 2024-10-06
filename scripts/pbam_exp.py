@@ -2,8 +2,7 @@ import sys, os
 import os
 
 from gsmvi.bam import BAM
-from gsmvi.pbam import PBAM, PBAM_fullcov
-from gsmvi.pbam2 import PBAM2
+from gsmvi.pbam import PBAM
 from gsmvi.monitors import KLMonitor
 
 import matplotlib.pyplot as plt
@@ -16,26 +15,31 @@ import argparse
 
 parser = argparse.ArgumentParser(description='Process some integers.')
 parser.add_argument('-D', type=int, help='dimension')
-parser.add_argument('-rank', type=int, default=16, help='dimension')
-parser.add_argument('-noise', type=float, default=0.01, help='rank')
+parser.add_argument('--rank', type=int, default=32, help='dimension')
+parser.add_argument('--noise', type=float, default=0.01, help='rank')
 parser.add_argument('--dataseed', type=int, default=0, help='seed between 0-999, default=0')
 #arguments for GSM
+parser.add_argument('--ranklr', type=int, default=0, help='rank of variational family')
 parser.add_argument('--seed', type=int, default=99, help='seed between 0-999, default=99')
 parser.add_argument('--niter', type=int, default=1001, help='number of iterations in training')
 parser.add_argument('--batch', type=int, default=2, help='batch size, default=2')
 parser.add_argument('--reg', type=float, default=1.0, help='regularizer for ngd and lsgsm')
-parser.add_argument('--eta', type=float, default=1.0, help='regularizer for ngd and lsgsm')
+parser.add_argument('--eta', type=float, default=1.2, help='eta factor for em updates')
 parser.add_argument('--niter_em', type=int, default=501, help='which regularizer to use')
 parser.add_argument('--nprint', type=int, default=100, help='number of times to print')
 parser.add_argument('--tolerance', type=float, default=1e-5, help='regularizer for ngd and lsgsm')
+parser.add_argument('--updatemode', type=str, default="current", help='initialziation of em updates')
+parser.add_argument('--updateform', type=str, default="lawrence", help='lawrence or diana updates')
+parser.add_argument('--postmean', type=int, default=0, help='number of times to print')
 #args for monitor
 parser.add_argument('--checkpoint', type=int, default=10, help='number of times to print')
 parser.add_argument('--store_params_iter', type=int, default=50, help='number of times to print')
 parser.add_argument('--savepoint', type=int, default=100, help='number of times to print')
+parser.add_argument('--schedule', type=float, default=0.5, help='scheduling learning rate of BAM')
 
 #arguments for path name
 parser.add_argument('--suffix', type=str, default="", help='suffix, default=""')
-parser.add_argument('--badcond', type=int, default=0, help='suffix, default=""')
+parser.add_argument('--cond', type=int, default=0, help='suffix, default=""')
 
 print()
 args = parser.parse_args()
@@ -50,41 +54,47 @@ if rank > D:
 # Paths
 print(D)
 basepath = '/mnt/ceph/users/cmodi/pbam/'
-if args.badcond: path = f"{basepath}/Gauss-D{D}-badcond/R{rank}-seed{args.dataseed}/"
-else: path = f"{basepath}/Gauss-D{D}/R{rank}-seed{args.dataseed}/"
+if args.cond == 0:  path = f"{basepath}/Gauss-D{D}/R{rank}-seed{args.dataseed}/"
+elif args.cond == 1: path = f"{basepath}/Gauss-D{D}-badcond/R{rank}-seed{args.dataseed}/"
+elif args.cond == 2:  path = f"{basepath}/Gauss-D{D}-goodcond/R{rank}-seed{args.dataseed}/"
+elif args.cond == 3:  path = f"{basepath}/Gauss-D{D}-dnorm/R{rank}-seed{args.dataseed}/"
+elif args.cond == 4:  path = f"{basepath}/Gauss-D{D}-ranknorm/R{rank}-seed{args.dataseed}/"
+elif args.cond == 5:  path = f"{basepath}/Gauss-D{D}-nonorm/R{rank}-seed{args.dataseed}/"
+
+if args.ranklr != 0:
+    ranklr = args.ranklr
+    path = path + f'ranklr{args.ranklr}/'
+else: ranklr = rank
+
 os.makedirs(path, exist_ok=True)
-savepath = f'{path}/pbam/B{args.batch}-reg{args.reg:0.2f}{suffix}/'
+savepath = f'{path}/pbam_{args.updateform}/B{args.batch}-reg{args.reg:0.2f}_{args.updatemode}{suffix}/'
+if args.schedule != 0.5: savepath = savepath[:-1] + f'_sch{args.schedule:0.1f}/'
+if args.postmean: savepath = savepath[:-1] + '_postmean/'
 os.makedirs(savepath, exist_ok=True)
 print(f"Save results in {savepath}")
       
-def setup_model(D=10, rank=4):
 
-    # setup a Gaussian target distribution
-    np.random.seed(args.dataseed)
-    mean = np.random.random(D)
-    L = np.random.normal(size = D*rank).reshape(D, rank)
-    cov = np.matmul(L, L.T) + np.diag(np.random.normal(1, 1, D)*1e-1+1)
-    model = dist.MultivariateNormal(loc=mean, covariance_matrix=cov)
-    lp = jit(lambda x: jnp.sum(model.log_prob(x)))
-    lp_g = jit(grad(lp, argnums=0))
-    ref_samples = np.random.multivariate_normal(mean, cov, 10000)
-    return model, mean, cov, lp, lp_g, ref_samples
+if args.cond == 1: mean, cov, lp, lp_g, ref_samples = setup_gauss_model(D, rank) # Bad conditioning
+elif args.cond == 2: model, mean, cov, lp, lp_g, ref_samples = setup_model_goodcond(D, rank) # Good conditioning
+elif args.cond == 3: model, mean, cov, lp, lp_g, ref_samples = setup_model_dnorm(D, rank)
+elif args.cond == 4: model, mean, cov, lp, lp_g, ref_samples = setup_model_ranknorm(D, rank)
+elif args.cond == 5: model, mean, cov, lp, lp_g, ref_samples = setup_model_nonorm(D, rank)
+elif args.cond == 0: model, mean, cov, lp, lp_g, ref_samples = setup_model(D, rank)
 
-
-if args.badcond: mean, cov, lp, lp_g, ref_samples = setup_gauss_model(D, rank) # Bad conditioning
-else: model, mean, cov, lp, lp_g, ref_samples = setup_model(D, rank)
 lp_vmap = lambda x: jax.vmap(lp, in_axes=0)(x.astype(np.float32))
 lp_g_vmap = lambda x: jax.vmap(lp_g, in_axes=0)(x.astype(np.float32))
 lp_vmap(ref_samples)
 np.save(f"{path}/mean", mean)
 np.save(f"{path}/cov", cov)
 
-ranklr = rank
 #r0, rmax = 0.1, args.reg
 #imax = args.niter/20
 #regf = lambda i : (r0 + i*(rmax/imax))*(i<imax+1) + (i>imax)*(rmax*imax+1)/(1+i)
-regf = lambda x: args.reg/(1+x)
-#regf = lambda x: args.reg
+regf = lambda x: args.reg/(1+x)**args.schedule
+
+jitterf = None
+#jitterf = lambda i: (1. )*(i<101) + (i>101)* (100)/(1+i) + 1e-6
+
 key = jax.random.PRNGKey(2)
 alg = PBAM(D, lp_vmap, lp_g_vmap)
 
@@ -96,12 +106,13 @@ monitor = KLMonitor(batch_size=32, ref_samples=ref_samples,
 
 np.random.seed(args.seed)
 mean = jnp.zeros(D)
-psi = 0.1 + np.random.random(D)*0.01
-llambda = np.random.normal(0, 0.1, size=(D, ranklr)) 
+psi = np.random.random(D)
+llambda = np.random.normal(0, 1, size=(D, ranklr)) 
 meanfit, psi, llambda = alg.fit(key, rank=ranklr,
                                 mean=mean, psi=psi, llambda=llambda,
-                                batch_size=args.batch, niter=args.niter, regf=regf, 
+                                batch_size=args.batch, niter=args.niter, regf=regf, jitterf=jitterf,
                                 tolerance=args.tolerance, eta=args.eta, niter_em=args.niter_em,
+                                updatemode=args.updatemode, updateform=args.updateform, postmean=args.postmean,
                                 nprint=args.nprint, print_convergence=False, monitor=monitor)
 
 
