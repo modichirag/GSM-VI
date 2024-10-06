@@ -339,7 +339,7 @@ class PBAM:
             elif is_good == 1:
                 reg_factor = 1.
                 tol_factor = 1.
-                mean_prev, psi_prev, llambda_prev = mean*1., psi*1., llambda.copy()
+                #mean_prev, psi_prev, llambda_prev = mean*1., psi*1., llambda.copy()
                 mean, psi, llambda = mean_new, psi_new, llambda_new
             else:
                 reg_factor /= 2.

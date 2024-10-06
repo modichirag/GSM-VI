@@ -27,9 +27,11 @@ def logp_lr(y, mean, psi, llambda):
     first_term = jnp.dot(x, x/psi)
     ltpsinv = llambda.T*(1/psi)
     m = jnp.identity(K) + ltpsinv@llambda
-    minv = jnp.linalg.pinv(m)
+    #minv = jnp.linalg.pinv(m)
     res = ltpsinv@x
-    second_term = res.T@minv@res
+    #second_term = res.T@minv@res
+    #mltpsinv = jnp.linalg.solve(m, ltpsinv)
+    second_term = res.T@jnp.linalg.solve(m, res)
     
     logexp = -0.5 * (first_term - second_term)
     logdet = -0.5 * (jnp.linalg.slogdet(m)[1] + jnp.sum(jnp.log(psi))) #jnp.log(jnp.linalg.det(m)*jnp.prod(psi))

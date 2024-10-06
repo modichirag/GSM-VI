@@ -283,6 +283,7 @@ class PGSM:
         if (nprint > niter) and verbose: nprint = niter
         tol_factor = 1.
         niter_factor = 1.
+        best_rkl = np.inf
         
         # start loop
         # start loop
@@ -293,6 +294,7 @@ class PGSM:
             monitor.iparams = []
             monitor.nprojects = []
         start = time()
+        mean_prev, psi_prev, llambda_prev = mean, psi, llambda
         for i in range(niter + 1):
             if (i%(niter//nprint) == 0) and verbose :
                 print(f'Iteration {i} of {niter}. Time taken : ', time() - start)
@@ -301,11 +303,19 @@ class PGSM:
             if monitor is not None:
                 if (i%monitor.checkpoint) == 0:
                     monitor_lr(monitor, i, [mean, psi, llambda], self.lp, key, nevals=nevals)
+                    # keep a copy of the best fit so far
+                    if monitor.rkl[-1] < best_rkl:
+                        #print('new best kl : (best, current) : ', best_rkl, monitor.rkl[-1])
+                        best_rkl = monitor.rkl[-1]
+                        mean_prev, psi_prev, llambda_prev = mean, psi, llambda
+                    if (monitor.rkl[-1] > 0) & (monitor.rkl[-1] > 2*best_rkl):
+                        print('diverging? : (best, current) : ', best_rkl, monitor.rkl[-1])
+                        mean, psi, llambda = mean_prev, psi_prev, llambda_prev
+                        self.nan_update.append(i)                    
                     nevals = 0
 
             # Can generate samples from jax distribution (commented below), but using numpy is faster
             j = 0
-            mean_prev, psi_prev, llambda_prev = None, None, None
             while True:         # Sometimes run crashes due to a bad sample. Avoid that by re-trying.
                 try:
                     key, key_sample = random.split(key, 2)
@@ -328,7 +338,6 @@ class PGSM:
                     if i == 0: print('compiled')
                     monitor.nprojects.append(counter)
                     psi_new = jnp.maximum(psi_new, jitter)
-                    #psi_new +=  jitter # jitter diagonal
 
                     break
                 except Exception as e:
@@ -344,7 +353,7 @@ class PGSM:
                 return mean, psi, llambda
             elif is_good == 1:
                 tol_factor = 1.
-                mean_prev, psi_prev, llambda_prev = mean*1., psi*1., llambda.copy()
+                #mean_prev, psi_prev, llambda_prev = mean*1., psi*1., llambda.copy()
                 mean, psi, llambda = mean_new, psi_new, llambda_new
             else:
                 #tol_factor /= 10.
