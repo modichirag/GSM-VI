@@ -227,7 +227,7 @@ class PBAM:
             mean = jnp.zeros(self.D)
 
         if llambda is None:
-            llambda = np.random.normal(0, 1, size=(self.D, K)) *scalellambda / (D*K)**0.5
+            llambda = np.random.normal(0, 1, size=(self.D, K)) *scalellambda / (self.D*K)**0.5
         if psi is None:
             psi = np.random.random(self.D)
 
