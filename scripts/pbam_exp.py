@@ -1,5 +1,5 @@
 import sys, os
-import os
+os.environ['JAX_PLATFORMS'] = 'cpu'
 
 from gsmvi.bam import BAM
 from gsmvi.pbam import PBAM

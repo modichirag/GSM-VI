@@ -1,5 +1,5 @@
 import sys, os
-import os
+os.environ['JAX_PLATFORMS'] = 'cpu'
 
 from gsmvi.bbvi import ADVI_LR
 from gsmvi.monitors import KLMonitor

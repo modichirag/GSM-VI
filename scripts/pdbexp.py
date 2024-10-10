@@ -59,6 +59,7 @@ D, lpjax, lp, lp_g, ref_samples = setup_pdb(args.modeln)
 
 basepath = "/mnt/ceph/users/cmodi/ls-gsm/"
 path = f"{basepath}/PDB_{args.modeln}/"
+os.makedirs(path, exist_ok=True)
 print(f"Parent folder in : {path}")
 print("For algorithm : ", alg)
 print("For lr and batch : ", lr, batch_size)
@@ -107,7 +108,7 @@ elif alg == 'advi':
 
 elif alg == 'ngd':
     ngd = NGD(D=D, lp=lpjax, lp_g=lp_g)
-    path = f"{path}/{alg}/B{batch_size}-lr{lr:0.3f}-reg{args.reg:0.3f}{suffix}/S{seed}/"    
+    path = f"{path}/{alg}/B{batch_size}-lr{lr:0.3f}-reg{args.reg:0.2e}{suffix}/S{seed}/"    
     monitor.savepath = path
     print(f"save in : {path}")
     mean_fit, cov_fit = ngd.fit(key, lr=args.lr, batch_size=batch_size, mean=x0, cov=cov0,

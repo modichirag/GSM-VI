@@ -1,5 +1,5 @@
 import numpy as np
-from gsmvi.ls_gsm import Regularizers
+from gsmvi.bam import Regularizers
 
 
 def setup_regularizer(reg_init):

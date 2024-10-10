@@ -1,11 +1,12 @@
 import sys, os
-import os
+os.environ['JAX_PLATFORMS'] = 'cpu'
 
 from gsmvi.bbvi import ADVI_Factorized
 from gsmvi.monitors import KLMonitor
 
 import matplotlib.pyplot as plt
 from imports import *
+import jax
 jax.config.update('jax_platform_name', 'cpu')
 from jax.lib import xla_bridge
 print(xla_bridge.get_backend().platform)

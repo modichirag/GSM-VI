@@ -24,8 +24,8 @@ from gsmvi.ngd import NGD
 from gsmvi.initializers import lbfgs_init
 from gsmvi.monitors import KLMonitor as Monitor
 from gsmvi.monitors import Monitor_Flow
-from gsmvi.flowvi import FlowVI
-from gsmvi.realNVP import AffineCoupling, RealNVP
+#from gsmvi.flowvi import FlowVI
+#from gsmvi.realNVP import AffineCoupling, RealNVP
 from setup_regs import setup_regularizer
 
 
