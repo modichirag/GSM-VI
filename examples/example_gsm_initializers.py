@@ -20,12 +20,15 @@ import numpyro
 import numpyro.distributions as dist
 
 # Import GSM
-import sys
-sys.path.append('../src/')
-from gsm import GSM
-from initializers import lbfgs_init
-sys.path.append('../utils/')
-from monitors import KLMonitor
+# import sys
+# sys.path.append('../src/')
+# from gsm import GSM
+# from initializers import lbfgs_init
+# sys.path.append('../utils/')
+# from monitors import KLMonitor
+from gsmvi.gsm import GSM
+from gsmvi.monitors import KLMonitor
+from gsmvi.initializers import lbfgs_init
 
 #####
 def setup_model(D=10):

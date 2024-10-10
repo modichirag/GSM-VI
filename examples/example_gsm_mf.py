@@ -30,8 +30,8 @@ def setup_model(D=10):
     mean = np.random.random(D)
     L = np.random.normal(size = D**2).reshape(D, D)
     cov = np.matmul(L, L.T) + np.eye(D)*1e-3
-    #sigmasq = np.random.uniform(0, 2, D)
-    #cov = np.diag(sigmasq)
+    sigmasq = np.random.uniform(0, 2, D)
+    cov = np.diag(sigmasq)
     model = dist.MultivariateNormal(loc=mean, covariance_matrix=cov)
     lp = jit(lambda x: jnp.sum(model.log_prob(x)))
     lp_g = jit(grad(lp, argnums=0))
@@ -46,8 +46,8 @@ if __name__=="__main__":
     model, mean, cov, lp, lp_g = setup_model(D=D)
     ref_samples = model.sample(random.PRNGKey(99), (1000,))
 
-    niter = 1000
-    batch_size = 8
+    niter = 100
+    batch_size = 2
     gsm = GSM_MF(D=D, lp=lp, lp_g=lp_g)
     key = random.PRNGKey(99)
     monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, savepoint=1000,\

@@ -30,3 +30,6 @@ full = [
 
 [project.urls]
 Homepage = "https://github.com/modichirag/GSM-VI/"
+
+[tool.setuptools.packages.find]
+include = ["gsmvi"]
