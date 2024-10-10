@@ -2,7 +2,7 @@
 #SBATCH -p ccm
 #SBATCH --nodes=1
 #SBATCH -C skylake
-#SBATCH --time=2:00:00
+#SBATCH --time=1:00:00
 #SBATCH -J gsm
 #SBATCH -o logs/%x.o%j
 
@@ -24,20 +24,24 @@ source activate jaxenv
 modeln=$1
 niter=10000
 alg="gsm"
+modeinit=0
+lbfgsinit=0
+scaleinit=1.0
 
 #for modeln in  $(seq  $n1 $n2)
 #for modeln in  23 64 68 48 31 51 11 44 85
 
-for batch in 2 4 8 16 32
+for seed in {0..5}
 do
     echo $modeln
         
-    for seed in {0..5}
+    for batch in 1 2 4 8 16 32 64 128
+    #for batch in 4 
     do 
         echo "running model " $nmodel " with seed " $seed " and batch " $batch
-        python  -u pdbexp.py --modeln $modeln  --alg $alg  --niter $niter --batch $batch --seed $seed    &
+        python  -u pdbexp.py --modeln $modeln  --alg $alg  --niter $niter --batch $batch --seed $seed  --modeinit $modeinit --lbfgsinit $lbfgsinit   --scaleinit $scaleinit &
     done
-    wait 
+    #wait 
 done
 wait
 

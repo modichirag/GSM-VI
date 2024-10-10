@@ -17,16 +17,17 @@ source activate jaxlatest
 
 ranklr=$1
 reg=$2
-updateform=$3
-updatemode=$4
 
-D=1024
+D=512
 rank=256
 
-batch=8
-niter=50001
+updateform="lawrence"
+updatemode="current"
+
+batch=32
+niter=100001
 nprint=100
-savepoint=100
+savepoint=500
 store_params=100
 cond=5
 suffix='reset'

@@ -2,7 +2,7 @@
 #SBATCH -p ccm
 #SBATCH --nodes=1
 #SBATCH -C skylake
-#SBATCH --time=2:00:00
+#SBATCH --time=0:30:00
 #SBATCH -J lsgsm
 #SBATCH -o logs/%x.o%j
 
@@ -21,29 +21,31 @@ source activate jaxenv
 #toshow = 23 68 48 31 51 11 44
 
 
+modeln=$1
 niter=10000
 alg="lsgsm"
-lambdat=1
-batch=16
-modeln=$1
+modeinit=0
+lbfgsinit=0
+scaleinit=1.0
 
+#lambdat=1
+#batch=16
 #for modeln in  $(seq  $n1 $n2)
 #for modeln in  23 64 68 48 31 51 11 44 85
-
-for batch in 2 4 8 16 32
+for seed in {0..1}
 do
     echo $modeln
-    for lambdat in 0 1 2 ;
-    do
-        
-        for reg  in 0.1 1 10 100 ;
+    for batch in 2 4 8 16 32 64 128
+    #for batch in 32 
+    do        
+        for reg  in 0.
         do
-            for seed in {0..5}
-            do 
+            for lambdat in 1 0 2 ;
+            do
                 echo "running model " $nmodel " with seed " $seed " and batch " $batch
-                python  -u pdbexp.py --alg $alg  --modeln $modeln --niter $niter --batch $batch --seed $seed  --reg $reg --lambdat $lambdat  &
+                python  -u pdbexp.py --alg $alg  --modeln $modeln --niter $niter --batch $batch --seed $seed  --reg $reg --lambdat $lambdat  --modeinit $modeinit --lbfgsinit $lbfgsinit --scaleinit $scaleinit  &
             done
-            wait 
+            wait
         done
         wait
     done
