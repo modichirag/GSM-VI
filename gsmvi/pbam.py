@@ -43,16 +43,16 @@ def low_rank_kl(psi1, llambda1, psi0, R, VTQM, QTV):
 
 
 @jit
-def _update_psi_llambda(psi, llambda, R, VTQM, QTV, psi0, first_term_1, jitter=1e-6):
+def _update_psi_llambda(psi, llambda, R, VTQM, QTV, psi0, first_term_1, jitter=1e-6): # components -- #Dx(K+B+1), Dx(B+1), (B+1)xD
     print('jit psi/llambda update')
     # first update llambda
     D, K = llambda.shape
     Id_K = jnp.identity(K)
     psi_inv = psi**-1
-    C = jnp.linalg.inv(Id_K + (llambda.T *psi_inv)@llambda) #KxK  #replace by Solve?
-    J = C@(llambda.T*psi_inv) #KxD
-    VJT = (J*psi0).T + R@(R.T@J.T) #DxK
-    SJT = VJT - VTQM@(QTV@J.T)   #SigmaJT , DxK
+    C = jnp.linalg.inv(Id_K + (llambda.T *psi_inv)@llambda) #KxK  #replace by Solve? --complexity KxDxK, inv(KxK)
+    J = C@(llambda.T*psi_inv) #KxD --complexity K*K*D
+    VJT = (J*psi0).T + R@(R.T@J.T) #DxK --complexity (K+B+1)*D*K*2
+    SJT = VJT - VTQM@(QTV@J.T)   #SigmaJT , DxK --complexity (B+1)*D*K*2
     # llambda_update = SJT @ jnp.linalg.pinv(C + J@SJT)  #replace by Solve?
     llambda_update = jnp.linalg.solve((C + J@SJT).T, SJT.T).T 
 
@@ -155,20 +155,20 @@ def pbam_update(samples, vs, mu0, psi0, llambda0, reg):
     B, D = samples.shape
     K = llambda0.shape[1]
     xbar = jnp.mean(samples, axis=0)
-    gbar = jnp.mean(vs, axis=0)
+    gbar = jnp.mean(vs, axis=0) # shape D
     XT = (samples - xbar)/B**0.5  # shape BxD                                                                                                                                                
     GT = (vs - gbar)/B**0.5    # shape BxD                                                                                                                  
     Q = jnp.concatenate([reg**0.5*GT.T,  ((reg)/(1+reg))**0.5 * gbar.reshape(-1, 1)], axis=1) #Dx(B+1)
     R = jnp.concatenate([llambda0, reg**0.5*XT.T, (reg/(1+reg))**0.5*(mu0-xbar).reshape(-1, 1)], axis=1) #Dx(K+B+1)
-    QTV = (Q.T@R)@R.T + (Q.T*psi0) #(B+1)xD
+    QTV = (Q.T@R)@R.T + (Q.T*psi0) #(B+1)xD -- complexity (K+B+1)*D*(B+1)
     Id_Q = jnp.identity(QTV.shape[0])
-    M = 0.5*Id_Q + get_sqrt(0.25*Id_Q + QTV@Q).real
+    M = 0.5*Id_Q + get_sqrt(0.25*Id_Q + QTV@Q).real # shape (B+1)x(B+1) #--complexity, (B+1)*D*(B+1). Sqrt-- (B+1)
     #MM = jnp.linalg.pinv(M@M)
-    #VTQM = (QTV).T@MM
-    VTQM = jnp.linalg.solve((M@M).T, QTV).T
+    #VTQM = (QTV).T@MM  # --complexity D*(B+1)*(B+1)
+    VTQM = jnp.linalg.solve((M@M).T, QTV).T  #--complexity inv(B+1)
 
-    mu = 1/(1+reg) * mu0 + reg/(1+reg) * (psi0*gbar + R@(R.T@gbar) - VTQM@(QTV@gbar) + xbar)    
-    components = [R, VTQM, QTV]
+    mu = 1/(1+reg) * mu0 + reg/(1+reg) * (psi0*gbar + R@(R.T@gbar) - VTQM@(QTV@gbar) + xbar) #--complexity D*(K+B+1)
+    components = [R, VTQM, QTV] #Dx(K+B+1), Dx(B+1), (B+1)xD
     return mu, components
 
 
@@ -310,7 +310,8 @@ class PBAM:
                         
                         
                     if i == 0: print('compiled')
-                    monitor.nprojects.append(counter)
+                    if monitor is not None: monitor.nprojects.append(counter)
+                    else: nprojects.append(counter)
                     psi_new = jnp.maximum(psi_new, jitter) # jitter diagonal
                     # or update mean later?
                     if postmean:
@@ -358,8 +359,9 @@ class PBAM:
             monitor.psis.append(psi)
             monitor.llambdas.append(llambda)
             monitor.iparams.append(i)
-
-        print('Total number of projections : ', np.sum(monitor.nprojects), np.sum(monitor.nprojects)/i)
+            print('Total number of projections : ', np.sum(monitor.nprojects), np.sum(monitor.nprojects)/i)
+        else:
+            print('Total number of projections : ', np.sum(nprojects), np.sum(nprojects)/i)
         return mean, psi, llambda
 
 
