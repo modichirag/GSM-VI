@@ -76,7 +76,7 @@ args = parser.parse_args()
 
 if args.suffix != '': suffix = f"-{args.suffix}"
 else: suffix = ""
-    
+
 D = args.D
 rank = args.rank
 niter = args.niter
@@ -101,7 +101,7 @@ basepath = "./output/"
 if args.cond == 0: path = f"{basepath}/Poisson-D{D}/{algorithm}/R{rank}-seed{args.dataseed}/"
 # Full rank
 elif args.cond == 1: path = f"{basepath}/Poisson-D{D}/{algorithm}/fullrank-seed{args.dataseed}/"
-# Diagonal 
+# Diagonal
 elif args.cond == 2: path = f"{basepath}/Poisson-D{D}/{algorithm}/diag-seed{args.dataseed}/"
 
 savepath = f'{path}/B{args.batch}-lr{args.lr:0.3f}{suffix}/'
@@ -114,8 +114,8 @@ print(f"Save results in {savepath}")
 
 # Form log prob
 
-# length scale 
-ls = 16
+# length scale
+ls = 1
 # signal variance
 s_f = 1
 
@@ -123,8 +123,10 @@ kernel_rbf = lambda x, y: s_f**2 * jnp.exp(-0.5 * jnp.linalg.norm(x - y)**2 / ls
 
 kernel_rbf = jax.jit(kernel_rbf)
 
+print(kernel_rbf(jnp.zeros(2), jnp.ones(2)))
+
 #D = 1
-#D = 100
+D = 100
 #xlim = jnp.linspace(0, 100, D)
 xlim = jnp.linspace(-3, 3, D)
 
@@ -132,7 +134,7 @@ kernel_matrix = jax.vmap(jax.vmap(kernel_rbf, in_axes=(None, 0)), in_axes=(0, No
 
 print(jnp.linalg.cond(kernel_matrix))
 
-key = jr.key(seed)
+key = jr.key(1234)
 
 ref_samples = jr.multivariate_normal(key, mean=jnp.zeros(D), cov=kernel_matrix, shape=(50,))
 #key, subkey = jr.split(key)
@@ -143,6 +145,14 @@ g = jr.multivariate_normal(key, mean=jnp.zeros(D), cov=kernel_matrix) # + 1e-6*n
 f = jnp.exp(g)
 # observed counts
 y = jr.poisson(key, lam=f)
+
+print(f)
+print(y)
+
+plt.plot(xlim, f)
+plt.scatter(xlim, y)
+plt.savefig(f'{savepath}/data.png')
+
 
 def lp(z):
     # global variables: data y, prior kernel_matrix
@@ -167,45 +177,45 @@ llambda = np.random.normal(0, 1, size=(D, rank))
 if algorithm == 'advi':
 
     print("Learning rate:", lr)
-    
+
     # Use adam
     opt = optax.adam(learning_rate=lr)
     #opt = optax.adam(learning_rate=schedule)
-    
-    
+
+
     if args.cond == 0:
         # Run LR+D ADVI
         alg = ADVI_LR(D, rank, lp_vmap, jit_compile=True)
-        
+
         monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, store_params_iter=10, plot_samples=True, savepath=f'{savepath}/')
-        
+
         meanfit_advi_lr, psi_advi_lr, lambda_advi_lr, losses_lr = alg.fit(key, opt, mean=mean, psi=psi, llambda=llambda,
                                                                           batch_size=batch_size, niter=niter, nprint=nprint, \
                                         monitor=monitor)
-        
+
         covfit_advi_lr = lambda_advi_lr @ lambda_advi_lr.T + psi_advi_lr
         np.save(f'{savepath}/means', monitor.means)
         np.save(f'{savepath}/llambdas', monitor.llambdas)
         np.save(f'{savepath}/psis', monitor.psis)
-    
+
     elif args.cond == 1:
-    
+
         # Run full ADVI
         alg = ADVI(D, lp_vmap)
         monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, store_params_iter=10, plot_samples=True, savepath=f'{savepath}/')
-        
+
         meanfit_advi, covfit_advi, losses = alg.fit(key, opt, batch_size=batch_size, niter=niter, nprint=nprint, monitor=monitor)
-    
+
         np.save(f'{savepath}/means', monitor.means)
         np.save(f'{savepath}/covs', monitor.covs)
     elif args.cond == 2:
-    
+
         # Run factorized ADVI
         alg = ADVI_Factorized(D, lp_vmap)
         monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, store_params_iter=10, plot_samples=True, savepath=f'{savepath}/')
-        
+
         meanfit_advi_diag, covfit_advi_diag, losses_diag = alg.fit(key, opt, batch_size=batch_size, niter=niter, nprint=nprint, monitor=monitor)
-    
+
         np.save(f'{savepath}/means', monitor.means)
         np.save(f'{savepath}/covs', monitor.covs)
 elif algorithm == 'bam':
@@ -215,25 +225,27 @@ elif algorithm == 'bam':
 
         pbam = PBAM(D, lp_vmap, lp_g_vmap)
         regf = lambda x: D * batch_size #1000#/(1+x)
-        
+
         monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, store_params_iter=10,  plot_samples=True, savepath=f'{savepath}/')
-    
+
         meanfit_pbam2, psi2, llambda2 = pbam.fit(key, rank=rank, batch_size=batch_size, niter=niter, \
                                           regf=regf, nprint=nprint, \
                                           tolerance=1e-4, eta=1.0, niter_em=501, \
                                           print_convergence=False, monitor=monitor)
-        
+
         covfit_pbam2 = np.diag(psi2) + llambda2@llambda2.T
 
 
     elif args.cond == 1:
-        
+
         alg = BAM(D, lp_vmap, lp_g_vmap, use_lowrank=True)
 
         regf = lambda x: D * batch_size #1000#/(1+x)
-        
-        monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, store_params_iter=10, plot_samples=True, savepath=f'{savepath}/')
-        
+
+        monitor = KLMonitor(batch_size=32, ref_samples=ref_samples,
+                            checkpoint=10, store_params_iter=10,
+                            plot_samples=False, savepath=f'{savepath}/')
+
         meanfit_bam, covfit_bam = alg.fit(key, batch_size=batch_size, niter=niter, regf=regf, nprint=nprint, \
                                         monitor=monitor, check_goodness=False)
 
@@ -253,7 +265,7 @@ plt.savefig(f'{savepath}/loss.png')
 plt.close()
 
 
-    
+
 
 
 
