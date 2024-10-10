@@ -194,8 +194,8 @@ class PBAM:
 
 
     def fit(self, key, regf, rank, mean=None, psi=None, llambda=None,
-            batch_size=2, niter=5000, nprint=10, niter_em=10, jit_compile=True,
-            tolerance=0, print_convergence=False, reg_factor=1., eta=1.,
+            batch_size=2, niter=5000, nprint=10, niter_em=100, jit_compile=True,
+            tolerance=1e-4, print_convergence=False, reg_factor=1., eta=1.2,
             scalellambda = 1., tol_factor=1.,
             verbose=True, check_goodness=True, monitor=None, retries=10,
             updateform = 'lawrence', updatemode = 'current', postmean=0,

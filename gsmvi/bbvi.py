@@ -108,6 +108,12 @@ class ADVI_Factorized():
         opt_state = opt.init(params)
         losses = []
         nevals = 1
+        if monitor is not None:
+            monitor.means = []
+            monitor.psis = []
+            monitor.llambdas = []
+            monitor.iparams = []
+
 
         for i in range(niter + 1):
             if(i%(niter//nprint)==0):
@@ -116,8 +122,10 @@ class ADVI_Factorized():
                 if (i%monitor.checkpoint) == 0:
                     mean = params[0]
                     logscale = params[1]
-                    cov = np.diag(np.exp(scale))
-                    monitor(i, [mean, cov], self.lp, key, nevals=nevals)
+                    psi = (np.exp(logscale))**2
+                    llambda = np.zeros((self.D, 1))
+                    monitor_lr(monitor, i, [mean, psi, llambda], self.lp, key, nevals=nevals)
+                    #monitor(i, [mean, cov], self.lp, key, nevals=nevals)
                     nevals = 0
 
             j = 0
@@ -139,9 +147,11 @@ class ADVI_Factorized():
         # Convert back to mean and covariance matrix
         mean = params[0]
         logscale = params[1]
-        cov = np.diag(np.exp(scale))
         if monitor is not None:
-            monitor(i, [mean, cov], self.lp, key, nevals=nevals)
+            #monitor(i, [mean, cov], self.lp, key, nevals=nevals)
+            psi = (np.exp(logscale))**2
+            llambda = np.zeros((self.D, 1))
+            monitor_lr(monitor, i, [mean, psi, llambda], self.lp, key, nevals=nevals)
 
         return mean, np.exp(logscale), losses
 
