@@ -62,9 +62,9 @@ parser.add_argument('--savepoint', type=int, default=100, help='number of times 
 
 parser.add_argument('--lr', type=float, default=1e-2, help='regularizer for ngd and lsgsm')
 
-parser.add_argument('--schedule', type=float, default=0.5, help='scheduling learning rate of BAM')
+parser.add_argument('--schedule', type=str, default="", help='scheduling learning rate of advi')
 
-parser.add_argument('--algorithm', type=str, default=0.5, help='bam, pbam, or advi')
+parser.add_argument('--algorithm', type=str, default=0.5, help='bam or advi')
 
 
 #arguments for path name
@@ -104,7 +104,18 @@ elif args.cond == 1: path = f"{basepath}/Poisson-D{D}/{algorithm}/fullrank-seed{
 # Diagonal
 elif args.cond == 2: path = f"{basepath}/Poisson-D{D}/{algorithm}/diag-seed{args.dataseed}/"
 
-savepath = f'{path}/B{args.batch}-lr{args.lr:0.3f}{suffix}/'
+#savepath = f'{path}/B{args.batch}-lr{args.lr:0.3f}{suffix}/'
+
+if args.schedule == "":
+    savepath = f'{path}/B{args.batch}-lr{args.lr:0.3f}{suffix}/'
+    schedule = args.lr
+elif args.schedule == "linear":
+    savepath = f'{path}/B{args.batch}-lr{args.lr:0.3f}-linschedule{suffix}/'
+    schedule = optax.schedules.linear_schedule(args.lr, end_value=1e-5, transition_steps=args.niter)
+elif args.schedule == "cosine":
+    savepath = f'{path}/B{args.batch}-lr{args.lr:0.3f}-cosineschedule{suffix}/'
+    schedule = optax.schedules.cosine_decay_schedule(args.lr, alpha=1e-5/args.lr, decay_steps=args.niter)
+
 
 
 os.makedirs(savepath, exist_ok=True)
@@ -172,7 +183,13 @@ np.random.seed(args.seed)
 
 mean = jnp.zeros(D)
 psi = np.random.random(D)
-llambda = np.random.normal(0, 1, size=(D, rank))
+llambda = np.random.normal(0, 1, size=(D, rank)) / np.sqrt(D*rank)
+#if llambda is None:
+#    llambda = np.random.normal(0, 1, size=(self.D, K)) *scalellambda / (self.D*K)**0.5
+#if psi is None:
+#    psi = np.random.random(self.D)
+
+plot_samples = False
 
 if algorithm == 'advi':
 
@@ -187,9 +204,10 @@ if algorithm == 'advi':
         # Run LR+D ADVI
         alg = ADVI_LR(D, rank, lp_vmap, jit_compile=True)
 
-        monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, store_params_iter=10, plot_samples=True, savepath=f'{savepath}/')
+        monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, store_params_iter=10, plot_samples=plot_samples, savepath=f'{savepath}/')
 
-        meanfit_advi_lr, psi_advi_lr, lambda_advi_lr, losses_lr = alg.fit(key, opt, mean=mean, psi=psi, llambda=llambda,
+        meanfit_advi_lr, psi_advi_lr, lambda_advi_lr, losses_lr = alg.fit(key, opt, 
+                                                                          mean=mean, psi=psi, llambda=llambda,
                                                                           batch_size=batch_size, niter=niter, nprint=nprint, \
                                         monitor=monitor)
 
@@ -202,7 +220,7 @@ if algorithm == 'advi':
 
         # Run full ADVI
         alg = ADVI(D, lp_vmap)
-        monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, store_params_iter=10, plot_samples=True, savepath=f'{savepath}/')
+        monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, store_params_iter=10, plot_samples=plot_samples, savepath=f'{savepath}/')
 
         meanfit_advi, covfit_advi, losses = alg.fit(key, opt, batch_size=batch_size, niter=niter, nprint=nprint, monitor=monitor)
 
@@ -212,7 +230,7 @@ if algorithm == 'advi':
 
         # Run factorized ADVI
         alg = ADVI_Factorized(D, lp_vmap)
-        monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, store_params_iter=10, plot_samples=True, savepath=f'{savepath}/')
+        monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, store_params_iter=10, plot_samples=plot_samples, savepath=f'{savepath}/')
 
         meanfit_advi_diag, covfit_advi_diag, losses_diag = alg.fit(key, opt, batch_size=batch_size, niter=niter, nprint=nprint, monitor=monitor)
 
@@ -226,10 +244,11 @@ elif algorithm == 'bam':
         pbam = PBAM(D, lp_vmap, lp_g_vmap)
         regf = lambda x: D * batch_size #1000#/(1+x)
 
-        monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, store_params_iter=10,  plot_samples=True, savepath=f'{savepath}/')
+        monitor = KLMonitor(batch_size=32, ref_samples=ref_samples, checkpoint=10, store_params_iter=10,  plot_samples=plot_samples, savepath=f'{savepath}/')
 
         meanfit_pbam2, psi2, llambda2 = pbam.fit(key, rank=rank, batch_size=batch_size, niter=niter, \
                                           regf=regf, nprint=nprint, \
+                                          #mean=mean, psi=psi, llambda=llambda,
                                           tolerance=1e-4, eta=1.0, niter_em=501, \
                                           print_convergence=False, monitor=monitor)
 
@@ -244,7 +263,7 @@ elif algorithm == 'bam':
 
         monitor = KLMonitor(batch_size=32, ref_samples=ref_samples,
                             checkpoint=10, store_params_iter=10,
-                            plot_samples=False, savepath=f'{savepath}/')
+                            plot_samples=plot_samples, savepath=f'{savepath}/')
 
         meanfit_bam, covfit_bam = alg.fit(key, batch_size=batch_size, niter=niter, regf=regf, nprint=nprint, \
                                         monitor=monitor, check_goodness=False)
@@ -252,17 +271,17 @@ elif algorithm == 'bam':
     elif args.cond == 2:
         print("Diagonal BaM not implemented")
 
-plt.figure(figsize=(7, 3))
-plt.subplot(121)
-plt.plot(monitor.nevals, np.abs(monitor.rkl))
-plt.loglog()
-plt.ylabel('reverse kl')
-plt.subplot(122)
-plt.plot(monitor.nevals, np.abs(monitor.fkl))
-plt.loglog()
-plt.ylabel('forward kl')
-plt.savefig(f'{savepath}/loss.png')
-plt.close()
+#plt.figure(figsize=(7, 3))
+#plt.subplot(121)
+#plt.plot(monitor.nevals, np.abs(monitor.rkl))
+#plt.loglog()
+#plt.ylabel('reverse kl')
+#plt.subplot(122)
+#plt.plot(monitor.nevals, np.abs(monitor.fkl))
+#plt.loglog()
+#plt.ylabel('forward kl')
+#plt.savefig(f'{savepath}/loss.png')
+#plt.close()
 
 
 
